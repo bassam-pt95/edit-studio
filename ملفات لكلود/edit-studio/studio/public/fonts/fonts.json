@@ -1,0 +1,149 @@
+[
+ {
+  "family": "Alexandria",
+  "weight": 700,
+  "style": "normal",
+  "file": "Alexandria-Bold.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "El Messiri",
+  "weight": 700,
+  "style": "normal",
+  "file": "ElMessiri-Bold.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Aref Ruqaa",
+  "weight": 700,
+  "style": "normal",
+  "file": "ArefRuqaa-Bold.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Sans Arabic",
+  "weight": 400,
+  "style": "normal",
+  "file": "NotoSansArabic-Regular.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Sans Arabic",
+  "weight": 500,
+  "style": "normal",
+  "file": "NotoSansArabic-Medium.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Sans Arabic",
+  "weight": 700,
+  "style": "normal",
+  "file": "NotoSansArabic-Bold.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Cairo",
+  "weight": 400,
+  "style": "normal",
+  "file": "Cairo-400.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Cairo",
+  "weight": 700,
+  "style": "normal",
+  "file": "Cairo-700.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Cairo",
+  "weight": 800,
+  "style": "normal",
+  "file": "Cairo-800.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Cairo",
+  "weight": 900,
+  "style": "normal",
+  "file": "Cairo-900.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Tajawal",
+  "weight": 400,
+  "style": "normal",
+  "file": "Tajawal-400.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Tajawal",
+  "weight": 700,
+  "style": "normal",
+  "file": "Tajawal-700.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Tajawal",
+  "weight": 800,
+  "style": "normal",
+  "file": "Tajawal-800.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Tajawal",
+  "weight": 900,
+  "style": "normal",
+  "file": "Tajawal-900.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "IBM Plex Sans Arabic",
+  "weight": 400,
+  "style": "normal",
+  "file": "IBMPlexSansArabic-400.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "IBM Plex Sans Arabic",
+  "weight": 600,
+  "style": "normal",
+  "file": "IBMPlexSansArabic-600.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "IBM Plex Sans Arabic",
+  "weight": 700,
+  "style": "normal",
+  "file": "IBMPlexSansArabic-700.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Kufi Arabic",
+  "weight": 400,
+  "style": "normal",
+  "file": "NotoKufiArabic-400.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Kufi Arabic",
+  "weight": 700,
+  "style": "normal",
+  "file": "NotoKufiArabic-700.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Kufi Arabic",
+  "weight": 800,
+  "style": "normal",
+  "file": "NotoKufiArabic-800.ttf",
+  "license": "licenses/OFL.txt"
+ },
+ {
+  "family": "Noto Kufi Arabic",
+  "weight": 900,
+  "style": "normal",
+  "file": "NotoKufiArabic-900.ttf",
+  "license": "licenses/OFL.txt"
+ }
+]

@@ -1,0 +1,9 @@
+# The studio's Python: voice cleaning (noise with DPDFNet, echo with WPE) and drawn scenes.
+# ASCII only: on Windows pip reads this file in the system's own encoding, and a non-ASCII comment stopped the install.
+dpdfnet==0.6.0
+nara-wpe==0.0.11
+soundfile
+numpy
+scipy
+opencv-python-headless
+pillow

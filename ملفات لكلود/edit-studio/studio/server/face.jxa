@@ -1,0 +1,23 @@
+// server/face.jxa — faces in still images with the Mac's own Vision framework (no install, no compiler).
+//   osascript -l JavaScript face.jxa <img.jpg>…  → JSON [[{x, y, w, h, c}…] per image]  (0–1, top-left origin, c = confidence)
+ObjC.import('Vision');
+ObjC.import('Foundation');
+function run(argv) {
+  const out = [];
+  for (const p of argv) {
+    const faces = [];
+    try {
+      const req = $.VNDetectFaceRectanglesRequest.alloc.init;
+      const h = $.VNImageRequestHandler.alloc.initWithURLOptions($.NSURL.fileURLWithPath(p), $({}));
+      if (h.performRequestsError($([req]), null)) {
+        const res = req.results;
+        for (let i = 0; res && i < res.count; i++) {
+          const o = res.objectAtIndex(i), b = o.boundingBox;
+          faces.push({ x: b.origin.x, y: 1 - b.origin.y - b.size.height, w: b.size.width, h: b.size.height, c: o.confidence });
+        }
+      }
+    } catch (e) { /* this image: no faces */ }
+    out.push(faces);
+  }
+  return JSON.stringify(out);
+}

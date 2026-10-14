@@ -1,0 +1,103 @@
+# تجربة التركيب على ويندوز: نفس اللي يسويه كلود عند المتابع (install.sh ثم setup.sh ثم تشغيل وإيقاف)، من Git Bash.
+# يدوي: gh workflow run windows-install.yml
+name: windows-install
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # الملفات لازم توصل ببايتاتها (الاستوديو يفحص بصمة كل ملف): بدون هذا ويندوز يبدّل نهايات الأسطر عند السحب
+      - name: keep line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - name: ffmpeg
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+      - name: install the two skills
+        run: bash "ملفات لكلود/install.sh"
+      - name: setup check (before)
+        run: bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" || echo "check exit $?"
+      - name: setup install (with the studio Python and its sound tools, about 550 MB)
+        # آخره تقرير التشخيص، وهو يطلع 1 هنا لأن أداة التفريغ (من تجهيز مهارة المونتاج) مو على جهاز التجربة
+        run: bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install || echo "setup exit $?"
+      - name: the noise cleaner for real (DPDFNet in the studio Python, the model from the package)
+        run: |
+          D="$HOME/Documents/video-edit/studio"
+          PY="$D/py/Scripts/python.exe"
+          "$PY" "$D/app/studio/voice/denoise.py" --version --models "$D/app/studio/voice/dpdfnet"
+          ffmpeg -v error -y -f lavfi -i "sine=frequency=220:duration=3" -f lavfi -i "anoisesrc=color=pink:duration=3:amplitude=0.05" -filter_complex "[0:a][1:a]amix=inputs=2:normalize=0,pan=stereo|c0=c0|c1=c0" -ar 48000 -c:a pcm_f32le noisy.wav
+          "$PY" "$D/app/studio/voice/denoise.py" noisy.wav clean.wav --models "$D/app/studio/voice/dpdfnet"
+          "$PY" "$D/app/studio/voice/dereverb.py" noisy.wav wpe.wav
+          "$PY" -c "import soundfile as sf; a=sf.info('noisy.wav'); b=sf.info('clean.wav'); print(a.frames, b.frames, b.channels, b.subtype); assert a.frames == b.frames and b.channels == 2"
+      - name: the face tool the montage skill installs on Windows (mediapipe 0.10.21)
+        run: |
+          python -m pip install --quiet "mediapipe<0.10.30" numpy opencv-python-headless
+          python -c "import mediapipe as m; m.solutions.face_detection; print('mediapipe', m.__version__)"
+      - name: montage skill, setup check (what it says is missing on this machine)
+        run: bash "$HOME/.claude/skills/video-edit/scripts/00_setup.sh" || echo "check exit $?"
+      - name: start, status, info
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          bash "$S/start.sh" --no-open
+          bash "$S/studio.sh" status
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          curl -s -m 30 "${URL}api/info" > info.json
+          cut -c1-200 info.json; echo
+          # الاستوديو المركّب يشوف كاشف الوجه على ويندوز (فتطلع أزرار الوجه)
+          python -c "import json; d=json.load(open('info.json', encoding='utf-8')); print('platform', d.get('platform'), 'face', d.get('face')); assert d.get('face') is True"
+      - name: the window of its own (0.9.7), the browser for it is found, the app page is served, and it opens
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          echo "browser: $B"
+          test -n "$B"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          curl -s -m 30 -o app.webmanifest "${URL}studio/app.webmanifest"
+          python -c "import json; d=json.load(open('app.webmanifest', encoding='utf-8')); print(d['display'], len(d['icons'])); assert d['display'] == 'standalone'"
+          # افتحه مثل ما تفتحه الأيقونة، وتأكد إن فيه متصفح شغّال على عنوان الاستوديو بنافذة لحاله
+          bash -c ". '$S/_common.sh'; open_url '$URL'"
+          sleep 10
+          N=$(powershell -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*--app=http*" } | Measure-Object | Select-Object -ExpandProperty Count')
+          echo "app windows: $N"
+          test "${N:-0}" -ge 1
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
+      - name: desktop shortcut
+        shell: pwsh
+        run: |
+          $l = Join-Path $HOME "Desktop/Edit Studio.lnk"
+          if (!(Test-Path $l)) { throw "no shortcut on the desktop" }
+          $s = (New-Object -ComObject WScript.Shell).CreateShortcut($l)
+          "target: $($s.TargetPath)"; "icon: $($s.IconLocation)"
+          if ($s.IconLocation -notmatch "icon\.ico") { throw "the shortcut has no studio icon" }
+          if (!(Test-Path ($s.IconLocation -replace ",\d+$", ""))) { throw "the icon file is not there" }
+      - name: update from the public repository (check, then a real update over a changed copy)
+        run: |
+          U="$HOME/.claude/skills/edit-studio/scripts/update.sh"
+          bash "$U" --check
+          echo "# an older copy" >> "$HOME/.claude/skills/edit-studio/SKILL.md"
+          bash "$U" | tee /tmp/update.log
+          grep -q "↺ edit-studio" /tmp/update.log
+          ! grep -q "an older copy" "$HOME/.claude/skills/edit-studio/SKILL.md"
+          ls "$HOME/edit-studio-old"
+      - name: the guide is on the Desktop
+        run: ls -la "$HOME/Desktop/" && test -f "$HOME/Desktop/دليل استوديو المونتاج.pdf"
+      - name: doctor
+        if: always()
+        run: bash "$HOME/Documents/video-edit/studio/app/scripts/doctor.sh" || echo "doctor exit $?"
+      - name: stop
+        if: always()
+        run: bash "$HOME/Documents/video-edit/studio/app/scripts/studio.sh" stop || true
+      - name: server log
+        if: always()
+        run: tail -n 30 "$HOME/Documents/video-edit/studio/server.log" 2>/dev/null || true

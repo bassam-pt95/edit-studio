@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title></title>
+<style>html, body { margin: 0; background: #000000; }</style>
+</head>
+<body>
+<script type="module">
+import { runExport } from './js/export/page.js';
+import { t } from './js/ui/i18n.js';
+document.title = t('ex.title');
+const job = new URLSearchParams(location.search).get('job');
+window.__mohrerExport = { state: 'starting', progress: 0, result: null, error: null };
+if (job) {
+  runExport(job, { onProgress: (m) => Object.assign(window.__mohrerExport, { state: m.state, progress: m.progress ?? window.__mohrerExport.progress }) })
+    .then((r) => { Object.assign(window.__mohrerExport, { state: 'done', result: r }); })
+    .catch((e) => { Object.assign(window.__mohrerExport, { state: 'failed', error: String((e && e.message) || e) }); console.error(e); });
+}
+</script>
+</body>
+</html>

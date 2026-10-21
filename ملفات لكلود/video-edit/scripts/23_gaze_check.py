@@ -9,14 +9,17 @@
 
 الاستعمال: python3 23_gaze_check.py <مجلد> [اسم_الورقة]
 """
-import json, os, subprocess, sys
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json, subprocess
 
 d = sys.argv[1] if len(sys.argv) > 1 else '.'
 out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(d, 'gaze_sheet.jpg')
 src = os.path.join(d, 'cutz.mp4')
 FPS = 30
 
-wins = json.load(open(os.path.join(d, 'stage.json')))
+wins = _paths.read_json(os.path.join(d, 'stage.json'))
 # «يرجع وجهه» = نافذة FULL تبدأ بعد نافذة رسم تغطّي الشاشة
 cuts = [round(float(w['s']), 2) for i, w in enumerate(wins)
         if w['m'] == 'FULL' and i > 0 and wins[i - 1]['m'] == 'NONE']

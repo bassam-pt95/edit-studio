@@ -13,12 +13,18 @@
   • --bg-style  ملمس الخلفية: grain حبيبات (الافتراضي) · lines شبكة خطوط · dots شبكة نقاط · both حبيبات مع شبكة
 الافتراضي يكتب لمجلد بياناته: profile.json — ومنه ينسخ كل مقطع theme.json حقه.
 """
-import sys, os, json, colorsys
+import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json, colorsys
 
 def arg(k, d=None):
-    return sys.argv[sys.argv.index(k) + 1] if k in sys.argv else d
+    if k not in sys.argv: return d
+    i = sys.argv.index(k) + 1
+    # ⛔ PowerShell يقرأ @name بلا تنصيص كـsplat فيختفي، وقيمة --handle تصير الفلاق اللي بعدها: نرفض قيمة تبدأ بـ-- بدل ما نحفظ «--out» كحساب
+    if i >= len(sys.argv) or sys.argv[i].startswith('--'):
+        print(f"⛔ {k} بلا قيمة (أو قيمته فلاق ثاني). اكتب القيمة بين تنصيص: {k} '@name'"); sys.exit(2)
+    return sys.argv[i]
 
 def hx(c):
     c = c.strip().lstrip('#')
@@ -73,6 +79,6 @@ if arg('--logo'): theme["logo"] = arg('--logo')
 
 _paths.ensure()
 out = arg('--out', _paths.data('profile.json'))
-json.dump(theme, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+_paths.write_json(out, theme)
 print(f"✅ {out}")
 print(f"   خلفية {theme['bg']} · نص {theme['ink']} · تمييز {theme['acc']} · بارد {theme['sky']} · {'غامق' if dark else 'فاتح'}")

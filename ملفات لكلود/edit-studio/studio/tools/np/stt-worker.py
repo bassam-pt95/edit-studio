@@ -3,6 +3,7 @@
 import os, sys, json, time, argparse, subprocess
 
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
+os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS_WARNING', '1')
 SR = 16000
 QUIET = 0.012
 SHORT = 0.35
@@ -24,7 +25,17 @@ def fw_name(repo):
     return n or 'large-v3'
 
 
+def utf8_stdio():
+
+    for stream, errors in ((sys.stdin, 'strict'), (sys.stdout, 'strict'), (sys.stderr, 'replace')):
+        try:
+            stream.reconfigure(encoding='utf-8', errors=errors)
+        except Exception:
+            pass
+
+
 def main():
+    utf8_stdio()
     ap = argparse.ArgumentParser()
     ap.add_argument('--model', default='mlx-community/whisper-large-v3-mlx')
     ap.add_argument('--language', default='ar')

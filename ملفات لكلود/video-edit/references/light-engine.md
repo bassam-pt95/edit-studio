@@ -1,6 +1,8 @@
 # المحرّك الخفيف (فريمات بالكانفس) — بديل لو ريموشن ما اشتغل على جهازه
-> ما يخص `compose.html` و`vfr/` و`04_render_frames.js`. يحتاج متصفح كروم وأداة الرسم — تنزل مرة وحدة لمجلد بياناته:
-> `npm i --prefix "$(python3 -c 'import sys;sys.path.insert(0,"scripts");import _paths;_paths.ensure();print(_paths.data("tools"))')" puppeteer-core` الفواحص 08/08b/08c/11 خفيفة.
+> ما يخص `compose.html` و`vfr/` و`04_render_frames.js`. يحتاج متصفح كروم وأداة الرسم — تنزل مرة وحدة لمجلد بياناته، وبموافقته:
+> `npm i --no-audit --no-fund --prefix "<مجلد البيانات>/tools" puppeteer-core` (السكربتات تطبع هذا السطر جاهزاً بمسار مجلده، بـ`/` على ويندوز). الفواحص 08/08b/08c/11 خفيفة.
+> **المتصفح:** كروم، وعلى ويندوز إيدج بديل؛ أو حدّد مساره بـ`CHROME_PATH` (مثال PowerShell: `$env:CHROME_PATH='C:/Program Files/Google/Chrome/Application/chrome.exe'`).
+> **طولي فقط:** المحرّك الخفيف مقاسه 1080×1920 ثابت — عرضي أو مربع ← ريموشن (السكربتات تحذّر لو الإطار مو طولي).
 
 ### 9) الرسم النهائي والتجميع
 

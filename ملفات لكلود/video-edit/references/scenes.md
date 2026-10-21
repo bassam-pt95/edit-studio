@@ -146,7 +146,8 @@ bash scripts/04b_remotion.sh <work> studio           # تايم-لاين حي ع
 
 استوديو تفاعلي (سحب على التايم-لاين ورسم مباشر):
 ```bash
-python3 -m http.server 8780 --directory <work>   # ثم /studio.html
+cp scripts/studio.html "<work>/"                                              # أولاً: الصفحة تنقرأ من مجلد الشغل
+python3 -m http.server 8780 --bind 127.0.0.1 --directory "<work>"             # ثم http://127.0.0.1:8780/studio.html
 ```
 
 ### 7.5) الكلام يمرّ ورا الشخص (اختياري — بس قوي)

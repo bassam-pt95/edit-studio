@@ -7,9 +7,10 @@
 mechanisms.json هو المصدر الوحيد للحقيقة. بعد كل تسليم: أضف الآليات الجديدة فيه
 (الرمز · الاسم · الدالة · «الشكل يقول ماذا») وأضف رموزها لقائمة المقطع، ثم شغّل هذا.
 """
-import json, os, sys, collections
+import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json, collections
 _paths.ensure()
 M = _paths.load("mechanisms.json", _paths.EMPTY_LEDGER)
 errs = []
@@ -57,5 +58,5 @@ if "--check" not in sys.argv:
     o += ["", "## الأكثر تكراراً", ""]
     for c, k in usage.most_common(6):
         o.append(f"- **{c}** {M['mechs'][c]['ar']} — {k} مرات")
-    open(_paths.data("LEDGER.md"), "w", encoding="utf-8").write("\n".join(o) + "\n")
+    open(_paths.data("LEDGER.md"), "w", encoding="utf-8", newline="\n").write("\n".join(o) + "\n")
     print(f"✅ LEDGER.md — {len(M['videos'])} مقاطع · {len(M['mechs'])} آلية · {len(M['rejected'])} مرفوضة")

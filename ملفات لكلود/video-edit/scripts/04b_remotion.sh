@@ -9,10 +9,11 @@
 # المحرّك نسخة وحدة بمجلد بياناته: <VEB_HOME>/remotion-shared — و<work>/remotion/node_modules رابط له.
 #   مجلد شغل قديم فيه node_modules حقيقي يُستخدم كما هو.
 set -e
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"; ve_set_python
 W="$(cd "$1" && pwd)"; CMD="${2:-setup}"; ARG="$3"
 TPL="$(cd "$(dirname "$0")/remotion-template" && pwd)"
 R="$W/remotion"
-SHARED="${VEB_HOME:-$HOME/Documents/video-edit}/remotion-shared"
+SHARED="$(veb_home)/remotion-shared"
 
 engine_ready(){ [ -f "$SHARED/node_modules/remotion/package.json" ] && [ -f "$SHARED/node_modules/@remotion/cli/package.json" ]; }
 
@@ -20,7 +21,7 @@ install_engine(){
   engine_ready && { echo "محرّك الرسم منزّل من قبل: $SHARED"; return; }
   mkdir -p "$SHARED"
   cp "$TPL/../remotion-shared/package.json" "$TPL/../remotion-shared/package-lock.json" "$SHARED/"
-  echo "⏬ تنزيل محرّك الرسم (~400 ميقا، مرة وحدة لكل المقاطع) بـ$SHARED…"
+  echo "⏬ تنزيل محرّك الرسم (~400 ميقا، مرة وحدة لكل المقاطع) بـ${SHARED}…"
   ( cd "$SHARED" && npm ci --no-audit --no-fund --loglevel=error && npx --no-install remotion browser ensure >/dev/null ) \
     || { echo "❌ فشل التنزيل"; exit 12; }
   echo "✅ المحرّك جاهز."
@@ -35,16 +36,25 @@ link_engine(){
     echo "   اطلب موافقة المستخدم على التنزيل، ثم شغّل: bash scripts/04b_remotion.sh \"$W\" engine"
     exit 13
   fi
-  case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*)   # ويندوز: وصلة مجلد (junction) — ما تحتاج صلاحية مدير
-      [ -f "$R/node_modules/remotion/package.json" ] && return       # الوصلة شغّالة
-      # وصلة مكسورة: rmdir يشيل الوصلة نفسها بس (لا rm -rf — ممكن يدخل الهدف ويمسح المحرّك)
-      { [ -e "$R/node_modules" ] || [ -L "$R/node_modules" ]; } && cmd //c rmdir "$(cygpath -w "$R/node_modules")" >/dev/null 2>&1
-      cmd //c mklink /J "$(cygpath -w "$R/node_modules")" "$(cygpath -w "$SHARED/node_modules")" >/dev/null ;;
-    *) # مجلد حقيقي بلا ريموشن = تنزيل قديم ما كمل — يُشال ويُربط بدله
-       [ -d "$R/node_modules" ] && [ ! -L "$R/node_modules" ] && rm -rf "$R/node_modules"
-       ln -sfn "$SHARED/node_modules" "$R/node_modules" ;;
-  esac
+  if [ "$VE_WIN" = 1 ]; then
+    # ويندوز: وصلة مجلد (junction) — ما تحتاج صلاحية مدير، لكن لازم القرص NTFS محلّي (مو شبكة ولا exFAT/FAT32)
+    [ -f "$R/node_modules/remotion/package.json" ] && return       # الوصلة شغّالة
+    D="$(ve_win_drive "$R")"
+    case "$D" in
+      ""|"Fixed NTFS"|"Removable NTFS"|"Fixed ReFS") ;;
+      *) echo "⛔ مجلد الشغل على قرص «${D}» — ربط محرّك الرسم (junction) يحتاج قرص NTFS محلّي."
+         echo "   انقل مجلد الشغل إلى قرص محلّي مثل C:\\ ثم أعد: bash scripts/04b_remotion.sh \"$W\" setup"; exit 14 ;;
+    esac
+    case "$(ve_win_drive "$SHARED")" in Network*) echo "⛔ مجلد محرّك الرسم ($SHARED) على قرص شبكة — الـjunction ما يوصل لها. اضبط VEB_HOME على قرص محلّي."; exit 14 ;; esac
+    # Node يشيل الوصلة المكسورة (الوصلة نفسها لا الهدف) ويسوي الجديدة ويتأكد إنها توصل — بلا cmd //c mklink اللي يخرّبه Git Bash
+    ve_junction "$SHARED/node_modules" "$R/node_modules" \
+      || { echo "❌ ما قدرت أربط محرّك الرسم: $R/node_modules ← $SHARED/node_modules"; exit 14; }
+  else
+    # مجلد حقيقي بلا ريموشن = تنزيل قديم ما كمل — يُشال ويُربط بدله
+    [ -d "$R/node_modules" ] && [ ! -L "$R/node_modules" ] && rm -rf "$R/node_modules"
+    # mac-only: فرع غير ويندوز (فرع ويندوز فوق يسوي junction)
+    ln -sfn "$SHARED/node_modules" "$R/node_modules"
+  fi
 }
 
 sync_all(){
@@ -61,7 +71,7 @@ sync_all(){
   # الأسلوب: <work>/style.json ← {"style": "simple" | "collage"} (الافتراضي simple)
   #   «documentary» و«board» انشالوا من المهارة: مجلد شغل قديم مكتوب فيه واحد منهم يكمّل بعُدّة الكولاج
   #   (بلا ./editorial ولا ./board).
-  STYLE="$(python3 -c "import json,os;p='$W/style.json';print(json.load(open(p)).get('style','simple') if os.path.exists(p) else 'simple')")"
+  STYLE="$($PY -c "import json,os,sys;p=os.path.join(sys.argv[1],'style.json');print(json.load(open(p,encoding='utf-8-sig')).get('style','simple') if os.path.exists(p) else 'simple')" "$W")"
   case "$STYLE" in collage|documentary|board|vox) KIT=collage ;; *) KIT=simple ;; esac
   SD="$(cd "$(dirname "$0")/.." && pwd)/styles/$KIT"
   if [ -d "$SD/kit" ]; then cp "$SD"/kit/*.tsx "$R/src/"; fi
@@ -71,17 +81,17 @@ sync_all(){
   echo "الأسلوب: $STYLE"
 
   cp "$W/caps.json" "$R/src/caps.json"
-  python3 - "$W" "$R" <<'PY'
+  $PY - "$W" "$R" <<'PY'
 import json, os, sys
 W, R = sys.argv[1], sys.argv[2]
 def rd(name, dflt):
     p = os.path.join(W, name)
-    return json.load(open(p)) if os.path.exists(p) else dflt
-caps  = json.load(open(os.path.join(W, "caps.json")))
+    return json.load(open(p, encoding="utf-8-sig")) if os.path.exists(p) else dflt   # utf-8-sig: PowerShell يكتب JSON ببصمة BOM
+caps  = json.load(open(os.path.join(W, "caps.json"), encoding="utf-8-sig"))
 theme = rd("theme.json", {})
 sfx   = rd("sfx.json", {})
 proj = {
-  "theme": {k: theme.get(k) for k in ("bg","ink","acc","clay","mut","sand","sky","warm","cream","font","fontDisplay","fontLocal","handle","faceAnchor","faceX","captionSize","captionWeight","captionMaxW","captionBottom") if theme.get(k) is not None},
+  "theme": {k: theme.get(k) for k in ("bg","ink","acc","clay","mut","sand","sky","warm","cream","font","fontDisplay","fontLocal","handle","faceAnchor","faceX","captionSize","captionWeight","captionMaxW","captionBottom","captionBottomWide","captionStyle","maxLines") if theme.get(k) is not None},
   "total": round(caps["total"], 3),
   "outro": float(sfx.get("outro", 0.0)),   # الافتراضي بلا كرت نهاية — المقطع يخلص على وجهه
   "sfx":   os.path.exists(os.path.join(W, "sfx.wav")),
@@ -96,7 +106,7 @@ proj = {
 }
 # ملمس الخلفية: من هويته (bgStyle)، وهوية قديمة ما فيها المفتاح تاخذ «حبيبات». الاستوديو يقرأه من هنا لما يفتح المقطع.
 proj["theme"]["bgStyle"] = theme.get("bgStyle") if theme.get("bgStyle") in ("grain", "lines", "dots", "both", "live") else "grain"
-json.dump(proj, open(os.path.join(R, "src", "project.json"), "w"), ensure_ascii=False, indent=1)
+json.dump(proj, open(os.path.join(R, "src", "project.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print("project.json → المدة", proj["total"], "+ ختام", proj["outro"], "· مؤثرات:", "نعم" if proj["sfx"] else "لا")
 PY
   [ -f "$W/cutz.mp4" ] && cp "$W/cutz.mp4" "$R/public/video.mp4"          # للمعاينة بالاستوديو
@@ -106,19 +116,28 @@ PY
   if [ -f "$W/cutz.mp4" ]; then
     if [ ! -f "$W/.cutz444.mp4" ] || [ "$W/cutz.mp4" -nt "$W/.cutz444.mp4" ]; then
       echo "🎨 وسيط 4:4:4 للرندر (مرة وحدة، ~دقيقتين)…"
+      ve_unhide "$W/.cutz444.mp4"   # ويندوز: ما تنكتب فوق ملف مخفي
       ffmpeg -y -v error -i "$W/cutz.mp4" -vf format=yuv444p -c:v libx264 -crf 8 -preset fast \
         -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv -an "$W/.cutz444.mp4"
+      ve_hide "$W/.cutz444.mp4"     # ويندوز: النقطة ما تخفي الملف عن Explorer (~530 ميقا)
     fi
     cp "$W/.cutz444.mp4" "$R/public/video444.mp4"
   fi
+  # ويندوز: NTFS يفرّق بين الهمزة/المدّة المركّبة وغير المركّبة (NFC/NFD)؛ ملف جاي من ماك أو zip يصير اسمه NFD وScenes.tsx يكتبه NFC فيرجع 404
+  if [ "$VE_WIN" = 1 ]; then
+    $PY -c "import os,sys,unicodedata as u;d=sys.argv[1]
+for f in os.listdir(d):
+    n=u.normalize('NFC',f)
+    if n!=f and not os.path.exists(os.path.join(d,n)): os.rename(os.path.join(d,f),os.path.join(d,n))" "$R/public"
+  fi
   [ -f "$W/sfx.wav" ]  && cp "$W/sfx.wav"  "$R/public/sfx.wav"
   [ -f "$W/voice.wav" ] && cp "$W/voice.wav" "$R/public/voice.wav"   # للمعاينة بالاستوديو فقط
-  LOGO="$(python3 -c "import json,os,sys;p=os.path.join('$W','theme.json');print(json.load(open(p)).get('logo','logo.png') if os.path.exists(p) else 'logo.png')")"
+  LOGO="$($PY -c "import json,os,sys;p=os.path.join(sys.argv[1],'theme.json');print(json.load(open(p,encoding='utf-8-sig')).get('logo','logo.png') if os.path.exists(p) else 'logo.png')" "$W")"
   [ -f "$W/$LOGO" ] && cp "$W/$LOGO" "$R/public/logo.png"
   # ⛔ الشعار المفقود كان يُسقط الرندر كله — نعلنه بـproject.json فتتخطّاه المكوّنات
   if [ ! -f "$R/public/logo.png" ]; then
     echo "⚠️  ما فيه شعار بـ$W — يُرسم بدونه"
-    python3 -c "import json,sys;p=sys.argv[1];d=json.load(open(p));d['logo']=False;json.dump(d,open(p,'w'),ensure_ascii=False,indent=1)" "$R/src/project.json"
+    $PY -c "import json,sys;p=sys.argv[1];d=json.load(open(p,encoding='utf-8'));d['logo']=False;json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=1)" "$R/src/project.json"
   fi
   echo "✅ البيانات والأصول محدّثة بـ$R"
 }
@@ -140,13 +159,36 @@ case "$CMD" in
     SIL="$W/.remotion-silent.mp4"
     # ⛔ امسح الناتج القديم قبل الرندر: رندر فشل (ENOSPC — القرص امتلأ) وبقي ad-final.mp4 القديم، فانفحص وانسلّم
     #    على إنه الجديد (صارت فعلاً: نسخة مسلَّمة بالصورة القديمة). ويوقف لو القرص أقل من 25 قيقا.
+    ve_free_out "$OUT"   # ويندوز: الناتج القديم مفتوح بمشغّل → رسالة بالعربي بدل Device or resource busy
     rm -f "$OUT" "$SIL"
     FREE=$(df -Pk "$W" | awk 'NR==2{print int($4/1048576)}')
     if [ "${FREE:-0}" -lt 25 ]; then echo "❌ القرص فيه ${FREE} قيقا بس — الرندر يحتاج ~20 (إطارات PNG). نظّف مجلدات remotion-webpack-bundle المؤقتة أولاً"; exit 3; fi
+    # ويندوز: Remotion يكتب إطاراته (~20 قيقا) ومتصفحه المؤقت بـ%TEMP% (غالباً C:)، مو بقرص مجلد الشغل اللي فحصناه فوق.
+    #   نوجّه TMP/TEMP لمجلد مؤقت داخل مجلد الشغل ويُمسح بعد الرندر؛ ولو مجلد الشغل بـOneDrive (يزامن 20 قيقا) نفحص قرص %TEMP% نفسه.
+    TENV=()
+    if [ "$VE_WIN" = 1 ]; then
+      case "$W" in
+        *[Oo]ne[Dd]rive*)
+          TMPD="$(node -e 'process.stdout.write(require("os").tmpdir())' 2>/dev/null | tr -d '\r')"; TMPD="$(cygpath -u "$TMPD" 2>/dev/null || true)"
+          if [ -n "$TMPD" ] && [ -d "$TMPD" ]; then
+            TFREE=$(df -Pk "$TMPD" | awk 'NR==2{print int($4/1048576)}')
+            if [ "${TFREE:-0}" -lt 25 ]; then echo "❌ قرص المجلد المؤقت (%TEMP%) فيه ${TFREE} قيقا بس — الرندر يحتاج ~20. نظّفه أو شغّل الرندر من مجلد شغل خارج OneDrive"; exit 3; fi
+          fi ;;
+        *)
+          RT="$W/.rtmp"; rm -rf "$RT"; mkdir -p "$RT"; trap 'rm -rf "$RT"' EXIT
+          TENV=(env "TMP=$(cygpath -w "$RT")" "TEMP=$(cygpath -w "$RT")") ;;
+      esac
+      # جدار حماية ويندوز: أول رندر يشغّل سيرفراً محلياً بـnode.exe فيطلع سؤال، ولو انضغط «إلغاء» يفشل الرندر
+      FWF="$(veb_home)/.firewall-told"
+      if [ ! -f "$FWF" ]; then
+        echo "ℹ️  أول رندر على ويندوز: ممكن تطلع نافذة جدار الحماية تسأل عن node.exe — اضغط «السماح» (Allow). لو ضغطت «إلغاء» أعد الرندر."
+        mkdir -p "$(dirname "$FWF")" && : > "$FWF" || true
+      fi
+    fi
     # ⛔ جودة ثابتة ١٤ ميقابت — crf 18 خلّى ريموشن يضغط لـ٤٫٨ ميقابت (٢٤٪ من مصدر ٢٠) بمقطعين،
     #    لأن الخلفية الغامقة تنضغط بسهولة فينزل كل الإطار. قاعدة «لا تحت ثلث المصدر».
     # ⛔ --color-space bt709 إلزامي (القاعدة ٩٠): بدونه يرمّز بمصفوفة 601 بلا وسم، فكل مشغّل HD يفكّه غلط (ميل لوني شافه بعينه).
-    ( cd "$R" && npx remotion render Ad "$SIL" --codec h264 --video-bitrate 14M --image-format png --muted --color-space bt709 "${FR[@]}" )
+    ( cd "$R" && "${TENV[@]}" npx remotion render Ad "$SIL" --codec h264 --video-bitrate 14M --image-format png --muted --color-space bt709 "${FR[@]}" )
     if [ -f "$W/voice.wav" ]; then
       MIX="$W/voice.wav"
       if [ -f "$W/sfx.wav" ]; then
@@ -170,10 +212,10 @@ case "$CMD" in
     # ⛔ الفحصان بعد كل رندر (القاعدتان ١٩ و٩٠) — «رندر نجح» ما يعني «صورته وصوته سليمان»
     SK="$(cd "$(dirname "$0")" && pwd)"
     if [ "$CMD" = render-test ]; then
-      A0="${4%-*}"; python3 "$SK/21_color_check.py" "$W" "$OUT" --at "$(python3 -c "print(round(($A0+30)/30,2))")" --offset "$(python3 -c "print(round($A0/30,3))")" || true
+      A0="${4%-*}"; $PY "$SK/21_color_check.py" "$W" "$OUT" --at "$($PY -c "print(round(($A0+30)/30,2))")" --offset "$($PY -c "print(round($A0/30,3))")" || true
     else
-      python3 "$SK/21_color_check.py" "$W" "$OUT" || echo "⛔ اللون تغيّر — لا تسلّم"
-      [ -f "$W/voice.wav" ] && { python3 "$SK/20_voice_check.py" "$W" "$OUT" || echo "⛔ الصوت تغيّر — لا تسلّم"; }
+      $PY "$SK/21_color_check.py" "$W" "$OUT" || echo "⛔ اللون تغيّر — لا تسلّم"
+      [ -f "$W/voice.wav" ] && { $PY "$SK/20_voice_check.py" "$W" "$OUT" || echo "⛔ الصوت تغيّر — لا تسلّم"; }
     fi
     ;;
   *) echo "أوامر: setup | engine | sync | studio | render | render-test"; exit 2 ;;

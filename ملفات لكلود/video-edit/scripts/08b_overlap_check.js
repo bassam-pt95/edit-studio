@@ -5,16 +5,18 @@
    الاستعمال:  node scripts/08b_overlap_check.js <work> [خطوة_بالثواني]
    يخرج بالرمز 3 لو فيه خرق — فاستعمله شرطاً قبل التصدير. */
 const path=require('path'), fs=require('fs');
+const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const W=path.resolve(process.argv[2])+path.sep;
 const STEP=parseFloat(process.argv[3]||'0.25');
+require('./_paths').warnIfNotTall(W);
 function resolvePuppeteer(){
   for(const p of [process.env.PUPPETEER_PATH,'puppeteer-core',
       path.join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]){
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت أداة الرسم — شغّل scripts/00_setup.sh --install');
+  throw new Error('ما لقيت أداة الرسم (puppeteer-core، للمحرّك الخفيف بس) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
 }
-const CHROME=require('./_paths').chrome();
+const CHROME=require('./_paths').chromeOrExit();
 /* أخضر فاقع مكان الفيديو: أي بكسل أخضر = الفيديو، وأي شي غير الخلفية والأخضر = رسمك أنت */
 const VID='#00FF00';
 const SOLID='data:image/svg+xml;base64,'+Buffer.from(
@@ -43,10 +45,10 @@ async function ensureFont(p,FF){
 
 (async()=>{
   const puppeteer=resolvePuppeteer();
-  const caps=JSON.parse(fs.readFileSync(W+'caps.json','utf8'));
-  const THEME=JSON.parse(fs.readFileSync(W+'theme.json','utf8'));
-  const SFX=fs.existsSync(W+'sfx.json')?JSON.parse(fs.readFileSync(W+'sfx.json','utf8')):{outro:0};
-  const SAFE=fs.existsSync(W+'safe.json')?JSON.parse(fs.readFileSync(W+'safe.json','utf8')):{};
+  const caps=readJson(W+'caps.json');
+  const THEME=readJson(W+'theme.json');
+  const SFX=fs.existsSync(W+'sfx.json')?readJson(W+'sfx.json'):{outro:0};
+  const SAFE=fs.existsSync(W+'safe.json')?readJson(W+'safe.json'):{};
   const BOTTOM=SAFE.drawBottom||1500;     /* أقصى نقطة ينزل لها أي رسم */
   const PAD=SAFE.videoPad!==undefined?SAFE.videoPad:115;  /* هامش يستثني إطار كرت الفيديو وظلّه */
   const BGC=hx(THEME.bg||'#F3EFEA');

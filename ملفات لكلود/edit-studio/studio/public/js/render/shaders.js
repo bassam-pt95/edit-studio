@@ -1,4 +1,4 @@
-const e=`
+const o=`
 vec3 tetra(highp sampler3D lut, int n, vec3 c) {
   float s = float(n - 1);
   vec3 f = clamp(c, 0.0, 1.0) * s;
@@ -20,13 +20,13 @@ vec3 tetra(highp sampler3D lut, int n, vec3 c) {
   }
   return w0 * c000 + w1 * a + w2 * b + w3 * c111;
 }
-`,i=`
+`,u=`
 vec3 srgbEnc(vec3 x) {
   x = clamp(x, 0.0, 1.0);
   return mix(12.92 * x, 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), x));
 }
 vec3 apple709(vec3 v) { return srgbEnc(pow(clamp(v, 0.0, 1.0), vec3(1.961))); }
-`,o=`#version 300 es
+`,t=`#version 300 es
 in vec2 aPos;
 uniform mat3 uM;
 uniform vec2 uFrame;
@@ -43,7 +43,7 @@ void main() {
   if (uFlipY > 0.5) c.y = -c.y;
   gl_Position = vec4(c, 0.0, 1.0);
 }
-`,u=`#version 300 es
+`,i=`#version 300 es
 void main() {
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
@@ -89,7 +89,31 @@ void main() {
   }
   o = vec4(c, 1.0);
 }
-`,t=`#version 300 es
+`,e=`
+uniform int uFlick;
+uniform float uFlickDark;
+uniform float uFlickGain;
+uniform vec4 uFlash;
+uniform vec4 uLeak;
+uniform vec4 uLeakCol;
+uniform vec4 uSpot;
+uniform float uSpotAmt;
+vec3 lightFx(vec3 c, vec2 pos) {
+  if (uFlick == 1) c *= uFlickDark;
+  else if (uFlick == 2) {
+    vec3 b = min(vec3(1.0), c * 0.4 + 0.7);
+    c = uFlickGain == 1.0 ? b : clamp(c + (b - c) * uFlickGain, 0.0, 1.0);
+  }
+  if (uFlash.a > 0.0) c = mix(c, uFlash.rgb, clamp(uFlash.a, 0.0, 1.0));
+  if (uLeakCol.a > 0.0) {
+    vec2 d = (pos - uLeak.xy) / uLeak.zw;
+    float g = exp(-dot(d, d)) * uLeakCol.a;
+    c = 1.0 - (1.0 - clamp(c, 0.0, 1.0)) * (1.0 - clamp(g * uLeakCol.rgb, 0.0, 1.0));
+  }
+  if (uSpotAmt > 0.0) c *= 1.0 - uSpotAmt * smoothstep(uSpot.z, uSpot.z + uSpot.w, length(pos - uSpot.xy));
+  return c;
+}
+`,r=`#version 300 es
 precision highp float;
 precision highp sampler3D;
 in vec2 vPos;
@@ -104,6 +128,118 @@ uniform int uLutN;
 uniform sampler3D uRef;
 uniform int uRefN;
 uniform float uSplit;
+uniform vec4 uFace;
+uniform float uFaceAmt;
+uniform float uRot;
+uniform vec2 uRotC;
+uniform int uBlurN;
+uniform vec4 uContentA;
+uniform float uRotA;
+uniform vec2 uRotCA;
+uniform vec4 uContent2;
+uniform float uRot2;
+uniform vec2 uRotC2;
+uniform int uMirror;
+uniform float uRgb;
+uniform sampler2D uMatte;
+uniform int uHasMatte;
+uniform vec2 uMatteTexel;
+out vec4 o;
+${e}
+${o}
+float matteAt(vec2 q) {
+  vec2 d = uMatteTexel;
+  float m = 4.0 * texture(uMatte, q).r
+    + 2.0 * (texture(uMatte, q + vec2(d.x, 0.0)).r + texture(uMatte, q - vec2(d.x, 0.0)).r
+           + texture(uMatte, q + vec2(0.0, d.y)).r + texture(uMatte, q - vec2(0.0, d.y)).r)
+    + texture(uMatte, q + d).r + texture(uMatte, q - d).r
+    + texture(uMatte, q + vec2(d.x, -d.y)).r + texture(uMatte, q + vec2(-d.x, d.y)).r;
+  return clamp((m / 16.0 - 0.08) / 0.84, 0.0, 1.0);
+}
+float sdRound(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+vec2 srcUV(vec2 pos, vec4 content, float ang, vec2 rc) {
+  vec2 q = pos;
+  if (ang != 0.0) {
+    vec2 d = pos - rc;
+    float cs = cos(ang), sn = sin(ang);
+    q = rc + vec2(cs * d.x + sn * d.y, -sn * d.x + cs * d.y);
+  }
+  return (q - content.xy) / content.zw;
+}
+vec2 fold(vec2 uv) {
+  if (uMirror == 1) { vec2 m = mod(uv, 2.0); return 1.0 - abs(1.0 - m); }
+  return clamp(uv, 0.0, 1.0);
+}
+vec3 graded(vec2 uv, bool left) {
+  vec3 c = texture(uTex, uv).rgb;
+  if (left) { if (uRefN > 1) c = tetra(uRef, uRefN, c); }
+  else {
+    if (uLutN > 1) c = tetra(uLut, uLutN, c);
+    // «إضاءة الوجه»: a soft oval of light on his face (centre a little below the box's middle), up to +40 % at 100
+    if (uFaceAmt > 0.0) {
+      vec2 d = (uv - uFace.xy) / max(uFace.zw, vec2(1e-3));
+      c *= 1.0 + 0.4 * uFaceAmt * (1.0 - smoothstep(0.45, 1.0, length(d)));
+    }
+  }
+  return c;
+}
+vec3 colorAt(vec2 pos, bool left) {
+  if (uBlurN <= 1) return graded(fold(srcUV(pos, uContent, uRot, uRotC)), left);
+  vec3 acc = vec3(0.0);
+  for (int k = 0; k < 24; k++) {
+    if (k >= uBlurN) break;
+    float w = float(k) / float(uBlurN - 1);
+    acc += graded(fold(srcUV(pos, mix(uContentA, uContent2, w), mix(uRotA, uRot2, w), mix(uRotCA, uRotC2, w))), left);
+  }
+  return acc / float(uBlurN);
+}
+// the person's matte where this pixel's picture is read (the same samples as colorAt under motion blur)
+float matteCov(vec2 pos) {
+  if (uBlurN <= 1) return matteAt(fold(srcUV(pos, uContent, uRot, uRotC)));
+  float acc = 0.0;
+  for (int k = 0; k < 24; k++) {
+    if (k >= uBlurN) break;
+    float w = float(k) / float(uBlurN - 1);
+    acc += matteAt(fold(srcUV(pos, mix(uContentA, uContent2, w), mix(uRotA, uRot2, w), mix(uRotCA, uRotC2, w))));
+  }
+  return acc / float(uBlurN);
+}
+void main() {
+  vec2 uv = srcUV(vPos, uContent, uRot, uRotC);
+  float cov = 1.0;
+  if (uHasWin == 1) {
+    vec2 h = uWin.zw * 0.5;
+    float d = sdRound(vPos - (uWin.xy + h), h, min(uRadius, min(h.x, h.y)));
+    cov = clamp(0.5 - d / uPx, 0.0, 1.0);
+  }
+  if (uMirror == 0 && (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0)) cov = 0.0;
+  if (uHasMatte == 1 && cov > 0.0) cov *= matteCov(vPos);
+  if (cov <= 0.0) discard;
+  bool left = uSplit >= 0.0 && vPos.x < uSplit;
+  vec3 c = colorAt(vPos, left);
+  if (uRgb > 0.0) {
+    c.r = colorAt(vPos - vec2(uRgb, 0.0), left).r;
+    c.b = colorAt(vPos + vec2(uRgb, 0.0), left).b;
+  }
+  c = lightFx(c, vPos);
+  o = vec4(c * cov, cov);
+}
+`,a=`#version 300 es
+precision highp float;
+in vec2 vPos;
+uniform sampler2D uSrc;
+uniform vec2 uFrame;
+uniform vec4 uContent;
+uniform vec4 uWin;
+uniform float uRadius;
+uniform int uHasWin;
+uniform float uPx;
+uniform float uRot;
+uniform vec2 uRotC;
+uniform int uMirror;
 out vec4 o;
 ${e}
 float sdRound(vec2 p, vec2 b, float r) {
@@ -111,22 +247,28 @@ float sdRound(vec2 p, vec2 b, float r) {
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 void main() {
-  vec2 uv = (vPos - uContent.xy) / uContent.zw;
+  vec2 q = vPos;
+  if (uRot != 0.0) {
+    vec2 d = vPos - uRotC;
+    float cs = cos(uRot), sn = sin(uRot);
+    q = uRotC + vec2(cs * d.x + sn * d.y, -sn * d.x + cs * d.y);
+  }
+  vec2 uv = (q - uContent.xy) / uContent.zw;
   float cov = 1.0;
   if (uHasWin == 1) {
     vec2 h = uWin.zw * 0.5;
     float d = sdRound(vPos - (uWin.xy + h), h, min(uRadius, min(h.x, h.y)));
     cov = clamp(0.5 - d / uPx, 0.0, 1.0);
   }
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) cov = 0.0;
+  if (uMirror == 0 && (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0)) cov = 0.0;
   if (cov <= 0.0) discard;
-  vec3 c = texture(uTex, clamp(uv, 0.0, 1.0)).rgb;
-  bool left = uSplit >= 0.0 && vPos.x < uSplit;
-  if (left) { if (uRefN > 1) c = tetra(uRef, uRefN, c); }
-  else if (uLutN > 1) c = tetra(uLut, uLutN, c);
-  o = vec4(c * cov, cov);
+  vec4 s = texture(uSrc, vec2(vPos.x / uFrame.x, 1.0 - vPos.y / uFrame.y));
+  vec3 c = s.a > 0.0 ? s.rgb / s.a : vec3(0.0);
+  c = lightFx(c, vPos);
+  float a = s.a * cov;
+  o = vec4(c * a, a);
 }
-`,r=`#version 300 es
+`,v=`#version 300 es
 precision highp float;
 in vec2 vUV;
 uniform sampler2D uTex;
@@ -167,7 +309,7 @@ void main() {
   }
   o = vec4(rgb * a, a);
 }
-`,a=`#version 300 es
+`,n=`#version 300 es
 precision highp float;
 in vec2 vPos;
 uniform vec4 uWin;
@@ -183,7 +325,7 @@ void main() {
   float d = sdRound(vPos - (uWin.xy + h), h, min(uRadius, min(h.x, h.y)));
   o = vec4(clamp(0.5 - d / uPx, 0.0, 1.0));
 }
-`,v=`#version 300 es
+`,l=`#version 300 es
 precision highp float;
 uniform sampler2D uSrc;
 uniform vec2 uDir;
@@ -205,7 +347,7 @@ void main() {
   }
   o = acc / wsum;
 }
-`,n=`#version 300 es
+`,f=`#version 300 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uMask;
@@ -220,7 +362,7 @@ void main() {
   float a = clamp(m * uAlpha, 0.0, 1.0);
   o = vec4(uColor * a, a);
 }
-`,l=`#version 300 es
+`,s=`#version 300 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uSrc;
@@ -232,7 +374,7 @@ void main() {
   vec4 c = texture(uSrc, vec2(vPos.x / uFrame.x, 1.0 - vPos.y / uFrame.y));
   o = vec4(c.rgb * uBright, c.a) * uAlpha;
 }
-`,f=`#version 300 es
+`,m=`#version 300 es
 precision highp float;
 in vec2 vUV;
 uniform sampler2D uSrc;
@@ -243,14 +385,14 @@ void main() {
   vec2 p = uRect.xy + vUV * uRect.zw;
   o = texture(uSrc, vec2(p.x / uFrame.x, 1.0 - p.y / uFrame.y));
 }
-`,m=`#version 300 es
+`,x=`#version 300 es
 precision highp float;
 in vec2 vUV;
 uniform sampler2D uSrc;
 uniform int uDisplay;
 uniform int uQuant;
 out vec4 o;
-${i}
+${u}
 void main() {
   vec4 c = texture(uSrc, vec2(vUV.x, 1.0 - vUV.y));
   vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
@@ -259,7 +401,7 @@ void main() {
   if (uQuant == 1) rgb = floor(rgb * 255.0 + 0.5) / 255.0;
   o = vec4(rgb, 1.0);
 }
-`,s=`#version 300 es
+`,p=`#version 300 es
 precision highp float;
 precision highp usampler2D;
 uniform usampler2D uSrc;
@@ -267,7 +409,7 @@ out vec4 o;
 void main() {
   o = vec4(texelFetch(uSrc, ivec2(gl_FragCoord.xy), 0)) / 65535.0;
 }
-`,x=`#version 300 es
+`,g=`#version 300 es
 precision highp float;
 precision highp usampler2D;
 uniform usampler2D uSrc;
@@ -278,7 +420,7 @@ void main() {
   o = vec4(float(texelFetch(uSrc, ivec2(x, p.y), 0).r), float(texelFetch(uSrc, ivec2(x + 1, p.y), 0).r),
            float(texelFetch(uSrc, ivec2(x + 2, p.y), 0).r), 65535.0) / 65535.0;
 }
-`,p=`#version 300 es
+`,d=`#version 300 es
 precision highp float;
 uniform sampler2D uTex;
 uniform ivec2 uBase;
@@ -288,4 +430,4 @@ void main() {
   ivec2 p = clamp(uBase + ivec2(gl_FragCoord.xy), ivec2(0), uMax);
   o = texelFetch(uTex, p, 0);
 }
-`;export{c as FS_BG,v as FS_BLUR,l as FS_EDGES,p as FS_FETCH,m as FS_FINAL,r as FS_OVERLAY,f as FS_REGION,a as FS_RRECT,n as FS_TINT,s as FS_UNPACK16,x as FS_UNPACK48,t as FS_VIDEO,i as GLSL_APPLE709,e as GLSL_TETRA,o as VS,u as VS_FULL};
+`;export{c as FS_BG,l as FS_BLUR,s as FS_EDGES,d as FS_FETCH,x as FS_FINAL,a as FS_LIGHT,v as FS_OVERLAY,m as FS_REGION,n as FS_RRECT,f as FS_TINT,p as FS_UNPACK16,g as FS_UNPACK48,r as FS_VIDEO,u as GLSL_APPLE709,e as GLSL_LIGHT,o as GLSL_TETRA,t as VS,i as VS_FULL};

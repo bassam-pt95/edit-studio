@@ -1,0 +1,2 @@
+# keep every byte as published: git on Windows must not turn LF into CRLF (it breaks the bash scripts and manifest.json hashes)
+* -text

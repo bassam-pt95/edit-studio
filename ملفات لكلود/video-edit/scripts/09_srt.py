@@ -2,11 +2,17 @@
 """ملف ترجمة SRT + نص كامل من الكابشن.  python3 09_srt.py <workdir> [اسم_الأساس]
 يطلّع: <base>.srt (يوتيوب يقراه، وانستقرام يقبله بالرفع) و<base>.txt (نص جاهز لكابشن البوست).
 يقرأ caps.json — نفس التوقيتات اللي انرسمت بالفيديو، فالمزامنة مضمونة."""
-import json, sys, os
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json
 
 W = os.path.abspath(sys.argv[1])
-base = sys.argv[2] if len(sys.argv) > 2 else "ad-final"
-caps = json.load(open(os.path.join(W, "caps.json")))
+_base0 = sys.argv[2] if len(sys.argv) > 2 else "ad-final"
+# ويندوز: ? : " < > | * ما تنفع بأسماء الملفات (NTFS يخفي الباقي بعد : كأنه stream) — ننظّف الاسم ونقول لو تغيّر
+base = _paths.sanitize_name(_base0)
+if base != _base0: print(f"⚠️ الاسم «{_base0}» ما ينفع اسم ملف — استُعمل «{base}»")
+caps = _paths.read_json(os.path.join(W, "caps.json"))
 cards = caps["cards"]
 
 def ts(t):

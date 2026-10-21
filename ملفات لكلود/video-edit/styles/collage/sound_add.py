@@ -12,8 +12,10 @@
   مصادر مجانية: مكتبته هو (الأفضل) · Mixkit (mixkit.co/free-sound-effects) · Pixabay (pixabay.com/sound-effects).
   ⛔ لا تنشر ملفات الأصوات نفسها لأحد — رخص المكتبات تسمح تستخدمها بمقاطعك بس.
 """
-import sys
-import subprocess, numpy as np, wave, os, sys
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts'))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import subprocess, numpy as np, wave
 SR=48000
 def load(p):
     r=subprocess.run(['ffmpeg','-v','error','-i',p,'-ac','2','-ar',str(SR),'-f','f32le','-'],capture_output=True)
@@ -29,6 +31,8 @@ def shape(x, lp=None):
         x = 0.45*x + 0.55*lowpass(x, lp)
     return x
 def save(name, x):
+    _n0 = name; name = _paths.sanitize_name(name, 'sound')   # ويندوز: ? : " < > | * ما تنفع بأسماء الملفات (وبـ: يطلع ملف 0 بايت مخفي)، والهمزة NFC
+    if name != _n0: print(f"  ⚠️ الاسم «{_n0}» ما ينفع اسم ملف — انحفظ باسم «{name}» (استعمل هذا بـsfx_events.json)")
     x=x/ (np.abs(x).max()+1e-9) * 0.89   # ذروة ‎-1 dBFS موحّدة، والكسب النهائي بالمازج
     x=(np.clip(x,-1,1)*32767).astype('<i2')
     with wave.open(os.path.join(OUT, name + '.wav'),'wb') as w:
@@ -50,8 +54,7 @@ if __name__ == '__main__':
     if len(a) < 3: print(__doc__); sys.exit(2)
     def opt(k, cast=float):
         return cast(a[a.index(k) + 1]) if k in a else None
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts'))
-    import _paths; _paths.ensure()
+    _paths.ensure()
     work = opt('--work', str)
     OUT = os.path.join(os.path.abspath(work), 'sounds') if work else _paths.data('sounds')
     os.makedirs(OUT, exist_ok=True)

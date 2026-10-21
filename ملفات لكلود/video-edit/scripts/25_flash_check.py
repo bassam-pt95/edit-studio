@@ -5,10 +5,13 @@
 السبب اللي لقيناه: صورة بـbackgroundImage (CSS) — ريموشن ما ينتظر تحميلها فتطلع بيضاء إطارين
 (صارت فعلاً: ثلاث ومضات بنسخة مسلَّمة). الحل: <Img> أو Preload مخفي.
 الومضة المقصودة (فلاش كاميرا) تنكتب بـ<work>/flash_ok.json."""
-import sys, subprocess, numpy as np, os, json
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import subprocess, numpy as np, json
 V = sys.argv[2]
 # ومضات مقصودة (فلاشات كاميرات…) بـ<work>/flash_ok.json = [أوقات]
-OK = json.load(open(os.path.join(sys.argv[1], 'flash_ok.json'))) if os.path.exists(os.path.join(sys.argv[1], 'flash_ok.json')) else []
+OK = _paths.read_json(os.path.join(sys.argv[1], 'flash_ok.json')) if os.path.exists(os.path.join(sys.argv[1], 'flash_ok.json')) else []
 raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', V, '-vf', 'scale=90:160,format=gray', '-f', 'rawvideo', '-'], capture_output=True).stdout
 f = np.frombuffer(raw, np.uint8).reshape(-1, 160, 90).astype(np.float32)[:, :106]   # فوق الكابشن
 bad = []

@@ -2,7 +2,10 @@
 """صوته خرج كما دخل؟ — يطرح المؤثرات من الناتج ويقارن الباقي بـvoice.wav.
    python3 20_voice_check.py <work> <الناتج.mp4>      → يخرج 3 لو فشل
 ⛔ الارتباط الخام مع المؤثرات ينزل تحت 0.999 وهو سليم — لازم تُطرح sfx.wav أولاً (القاعدة ١٩)."""
-import sys, os, subprocess, wave, numpy as np
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import subprocess, wave, numpy as np
 W = os.path.abspath(sys.argv[1]) + '/'; OUT = sys.argv[2]
 def rd(p):
     w = wave.open(p); b = w.readframes(w.getnframes()); sw = w.getsampwidth(); ch = w.getnchannels()

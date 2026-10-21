@@ -9,17 +9,20 @@
 # • الصورة تُنسخ كما هي — لا إعادة ترميز ولا خسارة جودة.
 # متغيرات: BG · BG_GAIN (0.28) · LUFS (-14) · NO_LOUDNORM=1
 set -e
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"; ve_set_python
 W="$(cd "$1" && pwd)"; IN="$2"; OUT="${3:-${IN%.mp4}-master.mp4}"
 [ -f "$IN" ] || { echo "❌ ما لقيت $IN"; exit 2; }
+ve_free_out "$OUT"
 G="${BG_GAIN:-${MUSIC_GAIN:-0.28}}"; I="${LUFS:--14}"
 DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
-FO=$(python3 -c "print(max(0,round($DUR-1.4,3)))")
+FO=$($PY -c "print(max(0,round($DUR-1.4,3)))")
 
 MUS="${BG:-$MUSIC}"
 if [ -z "$MUS" ]; then for n in bg-audio bg sound music; do for e in mp3 m4a wav aac; do
   [ -f "$W/$n.$e" ] && MUS="$W/$n.$e" && break 2; done; done; fi
 
 MIX="$W/.master-mix.wav"; NRM="$W/.master-norm.wav"
+trap 'rm -f "$MIX" "$NRM" "$W/.loud.json"' EXIT   # لو وقف بنص الطريق ما يبقى بمجلد الشغل ملفات مؤقتة ثقيلة
 if [ -n "$MUS" ]; then
   echo "🔊 خلفية صوتية: $(basename "$MUS")  (مستوى $G · تنخفض وقت الكلام)"
   ffmpeg -v error -stats -i "$IN" -stream_loop -1 -i "$MUS" -filter_complex \
@@ -38,13 +41,13 @@ if [ "$NO_LOUDNORM" = "1" ]; then cp "$MIX" "$NRM"; echo "⏭  المعايرة 
 else
   echo "📏 قياس العلو…"
   M=$(ffmpeg -hide_banner -nostats -v info -i "$MIX" -af "loudnorm=I=$I:TP=-1.5:LRA=11:print_format=json" -f null - 2>&1 | \
-      python3 -c "import sys,json,re;s=sys.stdin.read();m=re.findall(r'\{[^{}]*input_i[^{}]*\}',s,re.S);print(json.dumps(json.loads(m[-1])) if m else '')")
+      $PY -c "import sys,json,re;s=sys.stdin.buffer.read().decode('utf-8','replace');m=re.findall(r'\{[^{}]*input_i[^{}]*\}',s,re.S);print(json.dumps(json.loads(m[-1])) if m else '')")
   if [ -z "$M" ]; then echo "⚠️  ما قدرت أقيس — يمرّ كما هو بلا معايرة"; cp "$MIX" "$NRM";
   else
     echo "$M" > "$W/.loud.json"
-    read -r II TP LRA GAIN HEAD < <(I="$I" python3 - "$W/.loud.json" <<'PYCALC'
+    read -r II TP LRA GAIN HEAD < <(I="$I" $PY - "$W/.loud.json" <<'PYCALC'
 import json,os,sys
-d=json.load(open(sys.argv[1]))
+d=json.load(open(sys.argv[1],encoding='utf-8'))
 ii=float(d["input_i"]); tp=float(d["input_tp"]); tgt=float(os.environ["I"])
 g=tgt-ii
 print(ii, tp, d["input_lra"], round(g,2), round(-1.0-(tp+g),2))
@@ -55,9 +58,9 @@ PYCALC
     #    loudnorm حتى بـlinear=true ترجع normalization_type=dynamic وتقلّص المدى
     #    (قِسناها: 2.9 → 1.8 LU) والمستخدم يسمعها «صوتي يرتفع وينقص».
     #    المعايرة معناها رفع علو، لا تغيير ديناميكية.
-    if [ "$(python3 -c "print(1 if $HEAD < 0 else 0)")" = "1" ]; then
+    if [ "$($PY -c "print(1 if $HEAD < 0 else 0)")" = "1" ]; then
       echo "   ⚠️  الكسب ${GAIN}dB يتجاوز سقف الذروة — أخفضه بدل ما أضغط"
-      GAIN=$(python3 -c "print(round($GAIN+$HEAD,2))")
+      GAIN=$($PY -c "print(round($GAIN+$HEAD,2))")
     fi
     echo "   كسب ثابت ${GAIN} dB → $I LUFS · المدى الديناميكي كما هو"
     ffmpeg -v error -stats -i "$MIX" -af "volume=${GAIN}dB" -ar 48000 -y "$NRM"

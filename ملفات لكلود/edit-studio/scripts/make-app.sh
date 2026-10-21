@@ -5,16 +5,17 @@
 device_ok || { echo "$MSG_DEVICE"; exit 20; }
 installed || { echo "$MSG_NOT_INSTALLED"; exit 12; }
 NAME="${STUDIO_APP_NAME:-Edit Studio}"
-DEST_DIR="${1:-$HOME/Desktop}"
+DEST_DIR="${1:-$(desk_dir)}"      # ويندوز: سطح المكتب الحقيقي (قد يكون داخل OneDrive أو باسم عربي)
 DEST="$DEST_DIR/$NAME.app"
 if [ "$OS" = win ]; then
   # ويندوز: اختصار على سطح المكتب يشغّل start.sh ببرنامج bash حق Git (بلا نافذة)
   mkdir -p "$DEST_DIR"
   LNK="$(cygpath -w "$DEST_DIR/$NAME.lnk")"; BASH_W="$(cygpath -w "$(command -v bash)")"
-  ARGS="-lc \"STUDIO_DATA='$DATA' bash '$APP/scripts/start.sh'\""
+  sq(){ printf '%s' "$1" | sed "s/'/'\\\\''/g"; }     # ' داخل المسار تنهرّب، وإلا انقطع الأمر عند أول ' فيه
+  ARGS="-lc \"STUDIO_DATA='$(sq "$DATA")' bash '$(sq "$APP/scripts/start.sh")'\""
   ICO="$(cygpath -w "$APP/studio/public/studio/icon.ico")"
   if LNK="$LNK" BASH_W="$BASH_W" ARGS="$ARGS" ICO="$ICO" powershell.exe -NoProfile -Command '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK); $s.TargetPath=$env:BASH_W; $s.Arguments=$env:ARGS; $s.WindowStyle=7; $s.Description="Edit Studio"; if (Test-Path $env:ICO) { $s.IconLocation=$env:ICO }; $s.Save()' >/dev/null 2>&1 && [ -e "$DEST_DIR/$NAME.lnk" ]; then
-    echo "التطبيق جاهز: $DEST_DIR/$NAME.lnk"; exit 0
+    echo "التطبيق جاهز: $(wp "$DEST_DIR")/$NAME.lnk"; exit 0
   fi
   echo "تعذّر صنع اختصار سطح المكتب. الاستوديو يشتغل من المحادثة عادي."; exit 1
 fi

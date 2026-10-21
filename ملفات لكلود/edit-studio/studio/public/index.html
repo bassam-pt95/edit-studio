@@ -17,6 +17,8 @@
     if (q === 'ar' || q === 'en') localStorage.setItem('mohrer.lang', q);
     if (localStorage.getItem('mohrer.lang') === 'en') { document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr'; }
   } catch (e) { /* storage blocked: Arabic */ }
+  // not a Mac: css/base.css gives the panels thin scrollbars (the classic 15px ones narrow the fixed-width panels)
+  try { if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')) document.documentElement.setAttribute('data-os', 'pc'); } catch (e) { /* the Mac's look */ }
 })();
 </script>
 <link rel="stylesheet" href="css/theme.css">

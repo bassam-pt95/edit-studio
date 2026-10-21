@@ -4,9 +4,10 @@ capPauses: [add] {ranges:[{a, b}], key}: «تقصير الوقفات». Cut thes
 cutWords: [add] {ids}: cut the stretch of the main storyline under the given words (word ids or keys), every range in one step. Blade at both ends of each range (§8.1 blade, connected items starting inside move to the middle piece), then ripple remove of the middle piec
 insertSpine: {asset, f, in?, dur?}: split at f when inside a clip, then insert a new clip there. sel = the new clip.
 moveSpine: {id, toIndex}: reorder (toIndex = position in the resulting list); connected items follow.
-remove: {ids}: spine clips ripple out with their connected items (toast toast.deletedWithAbove {n}); attached items go; word ids/keys leave the captions only; 'watermark' hides the watermark (on:false). One step for a mixed selection.
+remove: {ids}: spine clips ripple out with their connected items (toast toast.deletedWithAbove {n}); attached items go; word ids/keys leave the captions only; 'watermark' hides the watermark (on:false). One step for a mixed selection. [add] §32.6 a detached voice is n
 resetBounds: {id}: in and dur back to `orig`.
 setSpineTf: {ids, tf:{s?, x?, y?}, per?:{id: tf}}: punch-in of the main video (absolute values; missing keys keep theirs; `per` gives a clip its own values, e.g. «وسّط الوجه», in one history step).
+slip: [slip] {ids, delta}: each clip or item keeps its place and its length on the timeline and shows another part of its footage: `in` moves by `delta` whole frames (source in and out move together), frame-aligned like every other op, clamped by slipRoom. Connected
 trimSpine: {id, edge:'L'|'R', delta} ripple trim. L: in = alignIn(in + delta·FD), dur −= delta (in ≥ 0, dur ≥ 1). R: dur += delta, capped by the media end. Extra result field [add] `limit: {edge, key}` at a media limit.
 clearWordStyles: {ids?}: remove per-word overrides; no ids = every word.
 mergeSentence: {wordId}: merge the word's sentence into the previous sentence of the same asset (e = later e, `en` joined).
@@ -14,9 +15,11 @@ moveWords: {ids, dSec}: the selected words move as one block (trim-start-caption
 removeWords: {ids}: delete words from the captions only (audio untouched); sentences left with no words go too.
 retimeWord: {id, edge:'s'|'e', dSec}. Touching a neighbour (|gap| < 1 ms) rolls the shared boundary; both keep ≥ 1 frame. Otherwise the edge is bounded by the neighbours.
 setCaptionStyle: {patch}: global caption style, dotted paths allowed ('box.radius'). Never touches word overrides.
+setCaptionStyleAll: {patch}: «كل الكابشن» (the inspector with no word chosen): the global caption style as setCaptionStyle, and the same keys (font, weight, size, color) taken off every word that has its own, so the change reaches every caption. One step.
 setEnParts: {items:[{id, enParts, en?}]}: English phrases synced to the Arabic (§16.4): enParts = [{text, at}], `at` = the Arabic word id where the phrase's meaning starts. `en` becomes the joined phrases. Phrases without text or whose anchor is not a word of that sentenc
 setEnglish: {patch}: English line (show, size, color, gap).
 setKeywordStyle: {patch}: keyword style (color, scale, pill).
+setKeywordStyleAll: {patch}: «كل الكابشن» for the keywords: setKeywordStyle, and a keyword word's own color (patch.color) or own size (patch.scale) taken off, so every keyword takes the change. One step.
 setSentenceEn: {id, en}: the English line of a sentence (empty removes it).
 setWordFlags: {ids, k?, br?, hidden?}: true / false, or 'toggle' (all set → clear all; else set all). H uses k:'toggle'.
 setWordStyle: {ids, patch}: merge into `st` (font, weight, size, color); null deletes a key; an empty `st` is removed.
@@ -27,19 +30,22 @@ addAssets: [add] {assets:{id: asset}}: import into the project without placing a
 addItems: 
 changeRow: {ids, d}: stacking ±1 row inside the band. Items in the target row that overlap in time swap into the vacated row, so the moved item ends up in front of (d > 0) or behind (d < 0) them.
 duplicate: {ids}: attached → a clone right after the original (same band, same row if free, else the next free row); spine → a copy inserted after the original with copies of its connected items (words follow by instancing). Groups among the clones get a fresh group id. 
+groupItems: {ids}: one clip from several (Final Cut's compound clip): the attached items among ids, with the shutter of each picture and the other members of their clips, share one new compound {id, n}. Video clips do not join (their items keep following them). Fewer than
 moveItems: {ids, dFrames, dRow?}: groups expand; locked items refuse to move in time (err.pinned). The whole set moves by the same delta, clamped so every item stays inside [0, total − 1]. dRow changes the row inside the band.
 nudge: {ids, d}: attached → moveItems; words → moveWords by d frames; spine → err.nudgeMain. Coalesce at the caller (600 ms).
 replaceAsset: {id, asset, data?}: another file for the same clip; timing and transform stay.
+setBehind: {ids, on}: the picture, drawn graphic or title stands behind the person (between the room and him: the studio cuts him out with his matte, his colour stays the clip's) or in front again. Pictures, drawn blocks and added videos only.
 setProjectAudio: [add] {patch} with keys 'voice.locked', 'voice.gain', 'sounds.gain' (dB) — the project audio tab (§18.3). Locking resets the voice gain and every spine clip gain to 0 (§18.2); voice gain is refused while locked.
 setProps: {ids, patch}: dotted paths, e.g. {'audio.gain': -6, 'tf.o': 0.8, fit, label, extend, 'enter.kind': 'fade', strength}. Each path is applied to every item that supports it (spine: label, audio.gain while the voice is unlocked). fit:'fill' on a `self` asset is re
 setSelf: {assetId, self}: a photo of the creator is always shown whole (fit contain on its items).
 setVoiceFx: [add] §30 the voice sound control: {patch} with any of preset, clean, tone, level, amount (a preset choice sends all five). Allowed while the voice is locked (the lock governs levels only). A result that is «as is» (clean off, tone flat, level off) removes aud
 trimItems: {ids, edge:'L'|'R', delta} simple trim (no ripple). L: positive delta shortens from the start (start moves right); R: positive delta lengthens. Bounds: dur ≥ 2 (images) / ≥ 1; media room from the layout (roomL/roomR). Extra result field [add] `limit: {edge, ke
+ungroupItems: {ids}: take apart every compound clip with a member among ids; nothing moves, the selection stays.
 placeFree: {set: {itemId: {x, y, s}}}: put pictures (or the pieces of a character) at the free places model/freespots.js found for them (spotsFor(...).spots[i].set): position and size only, one step for all of them; a slow zoom follows. A `self` photo is never moved or s
 resetTf: {ids}: «رجّع الحجم والمكان» — x, y, s, r back to identity (opacity, pivot, flip kept); spine: no punch-in.
 rotateAbout: {ids, deg}: rotate clockwise; several items also turn around the group center. Characters do not rotate.
 scaleAbout: {ids, k, pivot?}: uniform scale by k. One item: around its own pivot. Several items (or a given frame point `pivot` [x, y] in frame px, e.g. the opposite corner for ⌥): positions scale around the group box center.
-setCaptionPos: 
+setCaptionPos: {y, all?}: the caption block's place (style.y: frame px from the top, §6.11, kept inside the safe box). all («كل الكابشن» in the inspector): the sentences that have a place of their own (moved clear of the face) let it go and stand with the block, so the chang
 setCrop: {ids, crop: {l, t, r, b} | null}: cut a picture or video item from its sides (fractions of the picture, 0…0.9; at least 10 % of each axis stays); null or all zeros brings the whole picture back. The file is untouched. A `self` photo is never cut (err.selfNoCro
 setFit: {ids, fit:'fill'|'contain'|'none', reset?}: media items; a `self` photo refuses fill (err.selfNoCrop). reset [add]: the items whose fit changes also go back to the middle at 100 % (x, y, s; a slow zoom follows), so «ملء الشاشة» fills the frame in one press eve
 setMotion: {ids, on}: slow zoom while shown: motion = {to:{s: s·1.05}, ease:'linear'}; off removes motion.
@@ -64,3 +70,13 @@ renameLut: renameLut({id, name}).
 resetStep: Reset one panel step ('balance' | 'look' | 'adjust') or every step ('all') of the targets.
 setGrade: setGrade({gradeId} | {clipIds} | {assetId}, patch) → OpResult - gradeId: that grade only. - clipIds: the field(s) are written into each selected clip's effective grade in one step (created when missing). - assetId: every grade used by clips of that source (cam
 setSourceInput: setSourceInput({assetId, input}) («عادي | مسطّح Log»). Graphic sources (input 'none') are never changed here.
+addMoveFx: {f, kind, clip?, d?, …}: an effect on his footage from timeline frame f for d s. kind and its values: shake amp rot decay; flash color decay; flicker pattern (0 dark 1 as is 2 bright); leak color from gain; rgb amount decay; spot strength size close open; whip
+addMoveKey: {f, clip?, z?, x?, y?, r?, ease?, c? | face? | faceAt?}: a move key at timeline frame f (zoom z ≥ 1 around his face, x/y frame px, r degrees). Missing values = what the picture shows there now; a key already there is changed.
+addOpening: {at, name?, strength?, clip?}: an opening at frame at (zoomIn, zoomOut, shakeOut, flashIn, flicker, whip, leak, spin, rgbSplit; omit name to auto-pick an unused one). strength soft|medium|strong; omitted: strong in the first 3 s, else medium. One of each per v
+removeMoveFx: {clip, id}: take an effect of a clip out.
+removeMoveKey: {clip, k}: take move key k (or the list k: [..]) of a clip out.
+removeOpening: {name, clip?}: take an opening out (its keys and effects; from every clip when no clip is given).
+setMoveFx: {clip, id, patch:{f?, d?, …}}: change an effect of a clip (its start f as a timeline frame, its length, its values).
+setMoveKey: {clip, k, f?, z?, x?, y?, r?, ease?, c?}: change move key k of a clip (index in time order): its values, its ease ('inOutCubic', 'outCubic', 'inCubic', 'linear', 'smooth', 'step') or its time (f, a timeline frame inside the clip).
+setOpeningStrength: {name, strength, clip?}: an opening's strength (soft|medium|strong), made again in place: same time, same place.
+swapOpening: {name, to?, clip?}: put another opening in this one's place, same time and strength; without `to` the next unused one is picked.

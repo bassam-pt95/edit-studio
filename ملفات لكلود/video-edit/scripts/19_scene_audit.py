@@ -8,15 +8,18 @@
 
 ⛔ الحركة المستمرة ليست جموداً: p(t,a,b) = حركة من a إلى b. أول نسخة من هذا الفاحص
    عدّت المدى فجوة وطلّعت ٥٤ ثانية جمود كاذبة. المدى يُغطّى، والفجوة بين المديات هي الجمود."""
-import re, io, json, sys, os
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import re, io, json
 W = os.path.abspath(sys.argv[1]) + '/'
 s   = io.open(W+'Scenes.tsx', encoding='utf-8').read()
-ST  = json.load(open(W+'stage.json'))
-FMT = json.load(open(W+'formats.json')) if os.path.exists(W+'formats.json') else {}
-VEND= json.load(open(W+'caps.json'))['total']
+ST  = _paths.read_json(W+'stage.json')
+FMT = _paths.read_json(W+'formats.json') if os.path.exists(W+'formats.json') else {}
+VEND= _paths.read_json(W+'caps.json')['total']
 EMPTY, FROZEN, FULL_FLOOR = 0.35, 2.5, 420
 # ⛔ الحدّ يتبع وجه المتحدث بكل مقطع: أعلى وجهه (12_face_guard) ناقص ١٥٨ — يختلف حسب قرب الكاميرا (مثال: 579→420 · 528→370)
-_sj = json.load(open(W+'safe.json')) if os.path.exists(W+'safe.json') else {}
+_sj = _paths.read_json(W+'safe.json') if os.path.exists(W+'safe.json') else {}
 FULL_FLOOR = int(_sj.get('fullFloor', FULL_FLOOR))
 
 names = re.findall(r'const (\w+) = \(\{t', s); bodies = {}
@@ -69,7 +72,7 @@ import _paths
 FW, FH = _paths.frame(W)
 if FW > FH:
     # العرضي: الرسمة فوق وجهه (FULL) تبقى بالجهة الثانية من وجهه — ما تدخل عمود وجهه
-    _th = json.load(open(W+'theme.json')) if os.path.exists(W+'theme.json') else {}
+    _th = _paths.read_json(W+'theme.json') if os.path.exists(W+'theme.json') else {}
     fx = float(_th.get('faceX', 0.25 if _th.get('faceSide') == 'left' else 0.75)) * FW
     col = (fx - FW*0.16, fx + FW*0.16)
     print(f"③ رسومات فوق وجهه كاملاً تدخل عمود وجهه ({int(col[0])}…{int(col[1])})")

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "studio": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/studio.mjs"]
+    }
+  }
+}

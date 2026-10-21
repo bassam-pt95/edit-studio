@@ -27,10 +27,11 @@ setWordText: {id, t}. The caller coalesces under `text:<id>` (800 ms idle). Empt
 shiftCaptions: {dSec}: every caption word and sentence earlier (< 0) or later (> 0) by the same time («توقيت الكابشن كله», for when all captions run early or late). Nothing goes before 0: the words at the very start are squeezed (≥ 1 frame each, in order, never overlapping).
 splitSentence: {wordId}: a new sentence starts at this word. new.s = word.s − 0.06 (not before the previous word's end), prev.e = previous word's e, new.e = old e; `en` stays on the first part.
 addAssets: [add] {assets:{id: asset}}: import into the project without placing anything (files panel drop).
-addItems: 
+addItems: {files:[{asset}], f, mode?, slotId?, wordKeys?, linkTo?}: add pictures, videos and sounds at frame f. linkTo: the id of the scene a sound is added for (its entry swish); the sound is then linked to it and moves, trims and goes with it.
 changeRow: {ids, d}: stacking ±1 row inside the band. Items in the target row that overlap in time swap into the vacated row, so the moved item ends up in front of (d > 0) or behind (d < 0) them.
 duplicate: {ids}: attached → a clone right after the original (same band, same row if free, else the next free row); spine → a copy inserted after the original with copies of its connected items (words follow by instancing). Groups among the clones get a fresh group id. 
 groupItems: {ids}: one clip from several (Final Cut's compound clip): the attached items among ids, with the shutter of each picture and the other members of their clips, share one new compound {id, n}. Video clips do not join (their items keep following them). Fewer than
+linkSounds: {pairs:[{sound, scene}]}: link each sound to the scene it belongs to, so it moves, trims at its start and is deleted with the scene. A sound already linked is re-linked; pairs whose sound is not a sound or whose scene is not a picture, block or graphic are ski
 moveItems: {ids, dFrames, dRow?}: groups expand; locked items refuse to move in time (err.pinned). The whole set moves by the same delta, clamped so every item stays inside [0, total − 1]. dRow changes the row inside the band.
 nudge: {ids, d}: attached → moveItems; words → moveWords by d frames; spine → err.nudgeMain. Coalesce at the caller (600 ms).
 replaceAsset: {id, asset, data?}: another file for the same clip; timing and transform stay.
@@ -41,6 +42,7 @@ setSelf: {assetId, self}: a photo of the creator is always shown whole (fit cont
 setVoiceFx: [add] §30 the voice sound control: {patch} with any of preset, clean, tone, level, amount (a preset choice sends all five). Allowed while the voice is locked (the lock governs levels only). A result that is «as is» (clean off, tone flat, level off) removes aud
 trimItems: {ids, edge:'L'|'R', delta} simple trim (no ripple). L: positive delta shortens from the start (start moves right); R: positive delta lengthens. Bounds: dur ≥ 2 (images) / ≥ 1; media room from the layout (roomL/roomR). Extra result field [add] `limit: {edge, ke
 ungroupItems: {ids}: take apart every compound clip with a member among ids; nothing moves, the selection stays.
+unlinkSounds: {ids}: take the link off the sounds in ids (or off every sound linked to a scene in ids). The sounds stay where they are.
 placeFree: {set: {itemId: {x, y, s}}}: put pictures (or the pieces of a character) at the free places model/freespots.js found for them (spotsFor(...).spots[i].set): position and size only, one step for all of them; a slow zoom follows. A `self` photo is never moved or s
 resetTf: {ids}: «رجّع الحجم والمكان» — x, y, s, r back to identity (opacity, pivot, flip kept); spine: no punch-in.
 rotateAbout: {ids, deg}: rotate clockwise; several items also turn around the group center. Characters do not rotate.
@@ -80,3 +82,5 @@ setMoveFx: {clip, id, patch:{f?, d?, …}}: change an effect of a clip (its star
 setMoveKey: {clip, k, f?, z?, x?, y?, r?, ease?, c?}: change move key k of a clip (index in time order): its values, its ease ('inOutCubic', 'outCubic', 'inCubic', 'linear', 'smooth', 'step') or its time (f, a timeline frame inside the clip).
 setOpeningStrength: {name, strength, clip?}: an opening's strength (soft|medium|strong), made again in place: same time, same place.
 swapOpening: {name, to?, clip?}: put another opening in this one's place, same time and strength; without `to` the next unused one is picked.
+preflight: (a read tool, not an operation) the checks he gets when he presses Export, as text: caption on his face, things near the cropped edges, a cut mid-word, a sound without its scene, a missing file, sound past 0 dBFS. Data only and instant: call it after a big edit and before he exports, and fix what is yours to fix with apply.
+live scenes: (not an operation) draw a scene that shows spoken words or uses his colours with draw {bindWords: [word ids from find_words], bindColors: true} and write the words as k.words[0], k.words[1] (never the literal text) and the colours as k.brand.ink, k.brand.accent, k.brand.bg: when he corrects a bound word or changes his colours the studio draws the scene again by itself about 2 s later, as one undo step «تحديث المشهد». project_summary lists the stale scenes. A heavy one (Remotion, outside code) waits for his «حدّثه» button. A scene with no binding never changes by itself.

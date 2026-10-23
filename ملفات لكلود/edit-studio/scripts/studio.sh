@@ -20,9 +20,22 @@ installed || { echo "$MSG_NOT_INSTALLED"; exit 12; }
 NODE="$(find_node)" || { echo "ما لقيت Node على الجهاز."; exit 11; }
 T="$APP/studio/tools"
 [ -x "$PY" ] && export MOHRER_PYTHON="$PY"
+export_chrome     # ويندوز: التصدير ياخذ مسار المتصفح من CHROME (كروم أو Edge، نفس اللي يفحصه doctor). الماك: لا شي
 export MOHRER_HOME="${MOHRER_HOME:-$DATA/home}"
 cmd="${1:-}"; shift || true
 
+# ويندوز: Git Bash يحوّل أي وسيط يبدأ بـ«/» إلى مسار، فنص مثل «/عدّلت كذا» يتخرب قبل ما يوصل node. فنحوّل المسارات الحقيقية بأنفسنا
+# (wargs ← مصفوفة WA) ونمنع التحويل التلقائي (nodex). الماك: نفس الوسائط ونفس الأمر
+wargs(){
+  WA=(); local a
+  for a in "$@"; do
+    if [ "$OS" = win ]; then
+      case "$a" in /[a-zA-Z]/*) a="$(wp "$a")" ;; /*) [ -e "$a" ] && a="$(wp "$a")" ;; esac
+    fi
+    WA+=("$a")
+  done
+}
+nodex(){ if [ "$OS" = win ]; then MSYS2_ARG_CONV_EXCL='*' "$NODE" "$@"; else "$NODE" "$@"; fi; }
 need(){ [ -n "${1:-}" ] || { sed -n '2,17p' "$0"; exit 2; }; }
 run_bg(){ bash "$SCRIPTS_DIR/start.sh" --no-open >/dev/null || { bash "$SCRIPTS_DIR/start.sh" --no-open; exit 1; }; }
 
@@ -31,8 +44,8 @@ case "$cmd" in
     URL="$("$NODE" "$APP/studio/start.mjs" --url 2>/dev/null)"
     echo "version: $("$NODE" -e 'try{process.stdout.write(require(process.argv[1]).version)}catch{}' "$APP/manifest.json")"
     echo "running: ${URL:-no}"
-    echo "projects: $PROJECTS"
-    echo "data: $DATA" ;;
+    echo "projects: $(wp "$PROJECTS")"
+    echo "data: $(wp "$DATA")" ;;
   convert)
     need "${1:-}"; need "${2:-}"
     work="$1"; name="$2"; shift 2
@@ -44,7 +57,7 @@ case "$cmd" in
         set -- "$@" --blocks skip
       fi ;; esac
     # the converter's own «open: node …» hint is dropped: the next step is `studio.sh open`, and «project: …» stays last
-    conv(){ "$NODE" "$T/from-work.mjs" "$@" | while IFS= read -r l; do case "$l" in "open: "*) ;; *) printf '%s\n' "$l" ;; esac; done
+    conv(){ wargs "$@"; nodex "$(wp "$T/from-work.mjs")" "${WA[@]}" | while IFS= read -r l; do case "$l" in "open: "*) ;; *) printf '%s\n' "$l" ;; esac; done
       return "${PIPESTATUS[0]}"; }
     case " $* " in *" --out "*) conv "$work" --name "$name" "$@" ;;
       *) conv "$work" --name "$name" --root "$PROJECTS" "$@" ;; esac
@@ -55,7 +68,8 @@ case "$cmd" in
     need "${1:-}"; need "${2:-}"
     "$NODE" "$APP/studio/start.mjs" --init >/dev/null
     vid="$1"; name="$2"; shift 2      # بعدها: --tall (فيديو عرضي يبقى بإطار طولي) أو --wide
-    "$NODE" "$T/new-project.mjs" final "$vid" --name "$name" --root "$PROJECTS" "$@" | while IFS= read -r l; do case "$l" in "open: "*) ;; *) printf '%s\n' "$l" ;; esac; done
+    wargs "$vid" --name "$name" --root "$PROJECTS" "$@"
+    nodex "$(wp "$T/new-project.mjs")" final "${WA[@]}" | while IFS= read -r l; do case "$l" in "open: "*) ;; *) printf '%s\n' "$l" ;; esac; done
     exit "${PIPESTATUS[0]}" ;;
   open)
     need "${1:-}"; run_bg
@@ -64,6 +78,8 @@ case "$cmd" in
     need "${1:-}"; exec "$NODE" "$T/notes.mjs" "$@" ;;
   reply)
     need "${1:-}"; need "${2:-}"; need "${3:-}"
+    wargs "$1" --reply "$2" "${@:3}"
+    if [ "$OS" = win ]; then MSYS2_ARG_CONV_EXCL='*' exec "$NODE" "$(wp "$T/notes.mjs")" "${WA[@]}"; fi
     exec "$NODE" "$T/notes.mjs" "$1" --reply "$2" "${@:3}" ;;
   edit)
     need "${1:-}"; need "${2:-}"; exec "$NODE" "$T/edit.mjs" "$@" ;;

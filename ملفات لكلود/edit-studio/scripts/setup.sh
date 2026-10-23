@@ -9,6 +9,7 @@ INSTALL=0; WITH_PY=1; WITH_APP=1
 for a in "$@"; do case "$a" in --install) INSTALL=1 ;; --no-python) WITH_PY=0 ;; --no-app) WITH_APP=0 ;; esac; done
 
 device_ok || { echo "$MSG_DEVICE"; exit 20; }
+refresh_path      # ويندوز: أدوات ثبّتها المستخدم للتو (winget) ما يشوفها كلود إلا بعد إعادة تشغيله، فنقرا PATH من السجل (الماك: لا شي)
 if [ ! -f "$PKG_DIR/studio/start.mjs" ] || [ "$PKG_DIR" = "$APP" ]; then
   echo "شغّل التثبيت من مجلد مهارة الاستوديو نفسها (اللي فيها studio/ وmanifest.json)."; exit 1
 fi
@@ -19,7 +20,7 @@ NODE="$(find_node)"; NV=0; [ -n "$NODE" ] && NV="$(node_major "$NODE")"
 [ -n "$NODE" ] || MISS+=("Node")
 command -v ffmpeg >/dev/null 2>&1 || MISS+=("ffmpeg")
 command -v ffprobe >/dev/null 2>&1 || MISS+=("ffprobe")
-command -v "$PYBIN" >/dev/null 2>&1 || MISS+=("Python")
+have_python || MISS+=("Python")      # ويندوز: اختصار بايثون في المتجر ما يُحسب
 if [ ${#MISS[@]} -gt 0 ]; then
   LIST="$(printf '%s، ' "${MISS[@]}")"
   echo "ناقص من أدوات المونتاج: ${LIST%، }"
@@ -48,7 +49,7 @@ if [ $INSTALL -eq 0 ]; then
   elif ! cmp -s "$PKG_DIR/manifest.json" "$APP/manifest.json"; then TODO+=("تحديث الاستوديو (ملفات أحدث للنسخة $PKG_VER)")
   elif ! "$NODE" "$APP/studio/start.mjs" --check >/dev/null 2>&1; then TODO+=("إعادة تثبيت الاستوديو (ملفاته معدّلة)"); fi
   [ $WITH_PY -eq 1 ] && ! py_ok && TODO+=("أدوات تنظيف الصوت ومشاهد الرسم (~550 ميقا، تنزل من الإنترنت)")
-  [ $WITH_APP -eq 1 ] && [ ! -e "$HOME/Desktop/$APP_NAME.$DESK_EXT" ] && TODO+=("تطبيق «$APP_NAME» على سطح المكتب")
+  [ $WITH_APP -eq 1 ] && [ ! -e "$(desk_dir)/$APP_NAME.$DESK_EXT" ] && TODO+=("تطبيق «$APP_NAME» على سطح المكتب")
   if [ ${#TODO[@]} -eq 0 ]; then echo "✅ الاستوديو مثبّت وجاهز (النسخة $PKG_VER)."; exit 0; fi
   echo "المطلوب:"; for t in "${TODO[@]}"; do echo "  • $t"; done
   echo "للتثبيت: bash \"$0\" --install"
@@ -56,12 +57,14 @@ if [ $INSTALL -eq 0 ]; then
 fi
 
 # ── 1) الاستوديو: نسخة جديدة بجانب القديمة، نتحقق منها، ثم نبدّل (للقراءة فقط)
-mkdir -p "$DATA" || { echo "تعذّرت الكتابة في $DATA"; exit 1; }
+# ما نقف داخل مجلد نبدّله (ويندوز يرفض نقل مجلد فيه برنامج واقف)
+cd "$HOME" 2>/dev/null || cd /
+mkdir -p "$DATA" || { echo "تعذّرت الكتابة في $(wp "$DATA")"; cfa_enabled && echo "$MSG_CFA"; exit 1; }
 NEW="$DATA/.app-new"; OLD="$DATA/.app-old"
 for d in "$NEW" "$OLD"; do [ -d "$d" ] && { chmod -R u+w "$d"; rm -rf "$d"; }; done
 mkdir -p "$NEW"
-cp -R "$PKG_DIR/studio" "$PKG_DIR/scripts" "$NEW/" && cp "$PKG_DIR/manifest.json" "$PKG_DIR/LICENSE.md" "$NEW/" || { echo "فشل النسخ."; exit 1; }
-find "$NEW" -name .DS_Store -delete 2>/dev/null
+cp -R "$PKG_DIR/studio" "$PKG_DIR/scripts" "$NEW/" && cp "$PKG_DIR/manifest.json" "$PKG_DIR/LICENSE.md" "$NEW/" || { echo "فشل النسخ."; cfa_enabled && echo "$MSG_CFA"; exit 1; }
+find "$NEW" \( -name .DS_Store -o -iname desktop.ini -o -iname Thumbs.db -o -iname ehthumbs.db \) -delete 2>/dev/null   # ملفات يكتبها Finder وExplorer
 xattr -cr "$NEW" 2>/dev/null
 chmod -R u+rwX,go+rX "$NEW"; chmod +x "$NEW/scripts/"*.sh
 if ! "$NODE" "$NEW/studio/start.mjs" --check >/dev/null; then
@@ -69,16 +72,31 @@ if ! "$NODE" "$NEW/studio/start.mjs" --check >/dev/null; then
   echo "حمّل الحزمة الأصلية من جديد."; chmod -R u+w "$NEW"; rm -rf "$NEW"; exit 1
 fi
 if installed; then "$NODE" "$APP/studio/start.mjs" --stop >/dev/null 2>&1; fi
-[ -d "$APP" ] && { chmod -R u+w "$APP"; mv "$APP" "$OLD"; }
-mv "$NEW" "$APP" && { [ -d "$OLD" ] && rm -rf "$OLD"; }
-chmod -R a-w "$APP"
+# تبديل النسخة: لو القديمة ما انتقلت (برنامج فاتح شي فيها: طرفية، محرر، مشغّل) نوقف ونبقي القديمة شغّالة، ما نحط الجديدة داخلها
+if [ -d "$APP" ]; then
+  chmod -R u+w "$APP"
+  TRY=0
+  until mv "$APP" "$OLD" 2>/dev/null; do
+    TRY=$((TRY+1))
+    if [ "$OS" = win ] && [ $TRY -lt 4 ]; then sleep 1; continue; fi
+    echo "تعذّر تبديل نسخة الاستوديو القديمة: غالباً برنامج فاتح شي داخل مجلدها ($(wp "$APP")). سكّر أي طرفية أو محرر أو مشغّل فيديو فاتح هناك وأعد التثبيت. القديمة باقية كما هي."
+    [ "$OS" = win ] || chmod -R a-w "$APP"
+    chmod -R u+w "$NEW"; rm -rf "$NEW"; exit 1
+  done
+fi
+if ! mv "$NEW" "$APP"; then
+  echo "تعذّر وضع النسخة الجديدة."; [ -d "$OLD" ] && mv "$OLD" "$APP"; exit 1
+fi
+[ -d "$OLD" ] && rm -rf "$OLD" 2>/dev/null
+# ماك: القفل يمنع تعديل الملفات بالغلط. ويندوز: القفل (ReadOnly) ما يمنع شي حقيقي ويفشّل أي تنظيف لاحق بـAccess denied، والحماية فحص البصمات
+[ "$OS" = win ] || chmod -R a-w "$APP"
 "$NODE" "$APP/studio/start.mjs" --init >/dev/null || { echo "تعذّر تجهيز مجلد البيانات $DATA"; exit 1; }
-echo "✅ الاستوديو مثبّت (النسخة $PKG_VER) في $APP"
+echo "✅ الاستوديو مثبّت (النسخة $PKG_VER) في $(wp "$APP")"
 
 # ── 2) بايثون الاستوديو (تنظيف الصوت ومشاهد الرسم). نموذج تنظيف الضجيج نفسه داخل الحزمة، فما ينزل شي غير المكتبات
 if [ $WITH_PY -eq 1 ] && ! py_ok; then
   echo "⏬ أدوات تنظيف الصوت ومشاهد الرسم (~550 ميقا)…"
-  if { [ -x "$PY" ] || "$PYBIN" -m venv "$DATA/py"; } && "$PY" -m pip install --quiet --disable-pip-version-check -r "$APP/studio/voice/requirements.txt"; then
+  if { [ -x "$PY" ] || "$PYBIN" -m venv "$(wp "$DATA/py")"; } && "$PY" -m pip install --quiet --disable-pip-version-check -r "$APP/studio/voice/requirements.txt"; then
     echo "✅ أدوات الصوت جاهزة"
   else
     echo "⚠️  ما اكتملت أدوات الصوت: الاستوديو يعمل، وتنظيف الصوت ومشاهد الرسم ما تشتغل لين نعيد المحاولة."

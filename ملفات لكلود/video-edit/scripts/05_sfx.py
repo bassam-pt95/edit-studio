@@ -5,12 +5,15 @@ sfx.json = { "outro": 0, "<اسم الصوت>": [توقيتات...] }
 الأسماء المتاحة مطبوعة بآخر التشغيل. الأصوات الدلالية (خطوات، حديد، طيران…)
 تُربط بما يقوله المتحدث فعلاً، لا بأي انتقال.
 """
-import wave, numpy as np, sys, os, json
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import wave, numpy as np, json
 
 S = os.path.abspath(sys.argv[1]) + "/"
 SR = 48000
-_c = json.load(open(S + "caps.json"))
-_s = json.load(open(S + "sfx.json"))
+_c = _paths.read_json(S + "caps.json")
+_s = _paths.read_json(S + "sfx.json")
 DUR = _c["total"] + _s.get("outro", 0)
 n = int(DUR * SR) + SR
 buf = np.zeros(n)
@@ -352,7 +355,7 @@ def _lib(S_dir):
     out = {}
     for f in sorted(_g.glob(_os.path.join(S_dir, "lib", "*"))):
         if _os.path.splitext(f)[1].lower() in (".wav", ".mp3", ".aiff", ".m4a", ".aif"):
-            out[_os.path.splitext(_os.path.basename(f))[0]] = _load(f)
+            out[_paths.nfc(_os.path.splitext(_os.path.basename(f))[0])] = _load(f)   # NFC: أسماء ماك (NFD) ما تطابق مفاتيح sfx.json
     return out
 
 
@@ -478,6 +481,7 @@ LEADS = {}          # كم قُدّم كل صوت — يقرأها 05b_sfx_audit
 used, unknown = [], []
 ITEMS = []          # للاستوديو: كل صوت بوقته (بعد التقديم) — sfx/<الاسم>.wav + sfx_items.json
 for key, times in _s.items():
+    key = _paths.nfc(key)
     if key == "outro" or not isinstance(times, list):
         continue
     if key not in BANK:
@@ -497,7 +501,7 @@ pcm = (buf * 32767).astype('<i2')
 st = np.repeat(pcm[:, None], 2, axis=1).ravel()
 w = wave.open(S + "sfx.wav", "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
 w.writeframes(st.tobytes()); w.close()
-json.dump({"leads": LEADS, "lib": sorted(LIBSET)}, open(S + "sfx.lead.json", "w"), ensure_ascii=False, indent=1)
+_paths.write_json(S + "sfx.lead.json", {"leads": LEADS, "lib": sorted(LIBSET)})
 
 # ── للاستوديو: كل صوت ملف لحاله بكسبه، عشان ينفتح بالاستوديو قطعة يحذفها أو يحرّكها
 os.makedirs(S + "sfx", exist_ok=True)
@@ -507,7 +511,7 @@ for key in sorted({k for _, k in ITEMS}):
     q = (y * 32767).astype('<i2')
     ww = wave.open(S + "sfx/" + key + ".wav", "wb"); ww.setnchannels(2); ww.setsampwidth(2); ww.setframerate(SR)
     ww.writeframes(np.repeat(q[:, None], 2, axis=1).ravel().tobytes()); ww.close()
-json.dump(ITEMS, open(S + "sfx_items.json", "w"), ensure_ascii=False, indent=1)
+_paths.write_json(S + "sfx_items.json", ITEMS)
 
 peak = float(np.max(np.abs(buf)))
 dbfs = 20 * np.log10(peak) if peak > 0 else -99

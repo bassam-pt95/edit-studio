@@ -8,28 +8,31 @@
  ④ ميزانية طيفية               — مؤثران فوق ٤ كيلوهرتز في الدقيقة كحد أقصى
  ⑤ الكثافة ≤ ٢٠ في الدقيقة
 """
-import json, os, sys, subprocess
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json, subprocess
 import numpy as np
 
 W = os.path.abspath(sys.argv[1]) + "/"
 SR = 48000
-sx = json.load(open(W + "sfx.json"))
-caps = json.load(open(W + "caps.json"))
+sx = _paths.read_json(W + "sfx.json")
+caps = _paths.read_json(W + "caps.json")
 WORDS = [(w["s"], w["t"]) for c in caps["cards"] for w in c["w"]]
 DUR = caps["total"]
 
-_L = json.load(open(W + "sfx.lead.json")) if os.path.exists(W + "sfx.lead.json") else {}
-LEADS = _L.get("leads", _L)
+_L = _paths.read_json(W + "sfx.lead.json") if os.path.exists(W + "sfx.lead.json") else {}
+LEADS = {_paths.nfc(k): v for k, v in _L.get("leads", _L).items()}   # NFC: نفس توحيد 05_sfx
 # ⛔ الميزانية الطيفية تحكم مكتبتي المركَّبة، لا أصوات صانع المحتوى نفسه:
 #    اختار صوته بأذنه وهو جزء من هويته — قاعدتي ما تلغي اختياره.
-LIBSND = set(_L.get("lib", []))
+LIBSND = {_paths.nfc(x) for x in _L.get("lib", [])}
 # الضربات وحدها لو موجودة (المازج يكتبها) — الفرشات ما تنقاس كأنها بداية ضربة
 _SRC = W + ("sfx_hits.wav" if os.path.exists(W + "sfx_hits.wav") else "sfx.wav")
 p = subprocess.run(["ffmpeg", "-v", "quiet", "-i", _SRC,
                     "-f", "f32le", "-ac", "1", "-ar", str(SR), "-"], capture_output=True)
 x = np.frombuffer(p.stdout, dtype=np.float32).astype(float)
 
-ev = sorted((t, k) for k, v in sx.items() if isinstance(v, list) for t in v)
+ev = sorted((t, _paths.nfc(k)) for k, v in sx.items() if isinstance(v, list) for t in v)
 fails, warns = [], []
 
 # ① و② و④

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <link rel="icon" href="studio/favicon.png">
 <link rel="manifest" href="studio/app.webmanifest">
 <meta name="theme-color" content="#111111">
@@ -17,6 +17,20 @@
     if (q === 'ar' || q === 'en') localStorage.setItem('mohrer.lang', q);
     if (localStorage.getItem('mohrer.lang') === 'en') { document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr'; }
   } catch (e) { /* storage blocked: Arabic */ }
+  // not a Mac: css/base.css gives the panels thin scrollbars (the classic 15px ones narrow the fixed-width panels)
+  try { if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')) document.documentElement.setAttribute('data-os', 'pc'); } catch (e) { /* the Mac's look */ }
+})();
+</script>
+<script id="theme-boot">
+// Appearance, chosen before the first paint so nothing flashes (ui/appearance.js keeps it right afterwards and a unit
+// test holds this script to the same rule as its resolveTheme): his saved choice «light» or «dark», else the device's.
+(function () {
+  var m = null, light;
+  try { m = localStorage.getItem('mohrer.theme'); } catch (e) { /* storage blocked: follows the device */ }
+  if (m === 'light') light = true;
+  else if (m === 'dark') light = false;
+  else { try { light = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches); } catch (e) { light = false; } }
+  document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
 })();
 </script>
 <link rel="stylesheet" href="css/theme.css">

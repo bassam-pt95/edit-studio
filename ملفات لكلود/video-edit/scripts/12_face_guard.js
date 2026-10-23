@@ -8,6 +8,7 @@
    الاستعمال:  node scripts/12_face_guard.js <work> scan|check|broll
 */
 const path=require('path'), fs=require('fs'), cp=require('child_process');
+const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const W=path.resolve(process.argv[2])+path.sep, MODE=process.argv[3]||'scan';
 const TMP=W+'fg';
 /* الفريمات: المحرّك الخفيف عنده vfr/ كاملة (30 بالثانية). ريموشن ما يحتاجها، فنطلّع عيّنة 2 بالثانية من cutz.mp4
@@ -31,6 +32,19 @@ function ensureBin(){
   PM=require('./_paths').personmask(TMP);
   if(!PM){ console.log('⚠️ ما قدرت أجهّز كاشف الوجه — بالماك يحتاج أدوات Xcode (xcode-select --install)'); process.exit(0); }
 }
+/* يشغّل كاشف الوجه على مجلد فريمات. ناقص mediapipe → نقول بوضوح ونخرج؛ أي خطأ آخر → خروج 1 برسالته؛
+   وأقل من ٩٠٪ فريمات انقرت → خروج 3 (⛔ كان يرجع «ما لقيت وجهاً» وينجح بصمت لما OpenCV ما يقرا المسار العربي). */
+function runDetector(dir,outd,n){
+  const K=require('./_paths'), r=K.runPersonmask(PM,dir,outd,'fast',2);
+  const cleanup=()=>{ fs.rmSync(dir,{recursive:true,force:true}); fs.rmSync(outd,{recursive:true,force:true}); };
+  if(!r.ok){
+    cleanup(); const pr=K.personmaskProblem(r);
+    if(pr.kind==='missing'){ console.log('⚠️ '+pr.text+'\n   فحص الوجه ما انعمل — لا تعتبره سليماً.'); process.exit(0); }
+    console.log('❌ '+pr.text); process.exit(1);
+  }
+  let got=0; try{ got=readJson(outd+'/meta.json').length; }catch(e){}
+  if(got<n*0.9){ cleanup(); console.log('❌ كاشف الوجه قرأ '+got+' من '+n+' فريم — غالباً المسار فيه عربي أو مسافات. شغّل من مجلد اسمه لاتيني قصير'); process.exit(3); }
+}
 /* عيّنة فريمات موزّعة على الفيديو */
 function sample(n){
   const all=fs.readdirSync(VFR).filter(f=>f.endsWith('.jpg')).sort();
@@ -45,8 +59,8 @@ function detect(){
   fs.rmSync(dir,{recursive:true,force:true}); fs.mkdirSync(dir,{recursive:true});
   const files=sample(40);
   for(const f of files) fs.copyFileSync(VFR+'/'+f, dir+'/'+f);
-  cp.execSync(PM+' '+JSON.stringify(dir)+' '+JSON.stringify(outd)+' fast 2',{stdio:'pipe'});
-  const meta=JSON.parse(fs.readFileSync(outd+'/meta.json','utf8'));
+  runDetector(dir,outd,files.length);
+  const meta=readJson(outd+'/meta.json');
   const faces=[];
   for(const row of meta){
     const b=row.face;                       /* الصندوق متداخل تحت مفتاح face */
@@ -67,8 +81,8 @@ if (MODE === 'broll') {
   fs.rmSync(dir, {recursive:true, force:true}); fs.mkdirSync(dir, {recursive:true});
   const picked = [];
   for (let i = 0; i < all.length; i += STEP) { picked.push(all[i]); fs.copyFileSync(VFR+'/'+all[i], dir+'/'+all[i]); }
-  cp.execSync(PM+' '+JSON.stringify(dir)+' '+JSON.stringify(outd)+' fast 2', {stdio:'pipe'});
-  const meta = JSON.parse(fs.readFileSync(outd+'/meta.json','utf8'));
+  runDetector(dir, outd, picked.length);
+  const meta = readJson(outd+'/meta.json');
   const byFile = {}; for (const r of meta) byFile[r.f] = r.face || null;
   /* الوجه "متحدث" إذا كان كبيراً وقريب من مركز الكادر أفقياً */
   const isHead = b => b && b.h > 260 && Math.abs((b.x + b.w/2) - 540) < 300;
@@ -106,7 +120,7 @@ function getRects(){
       .map(m=>({n:m[1],w:+m[4],h:+m[5]})).filter(r=>r.w>2&&r.h>2);
   }
   const R=require('./_paths').frame(W)[0]>require('./_paths').frame(W)[1] ? {CARD:{w:1280,h:720}, SIDE:{w:780,h:860}} : {CARD:{w:940,h:612}, SIDE:{w:470,h:835}};
-  if(fs.existsSync(W+'rects.json')) Object.assign(R, JSON.parse(fs.readFileSync(W+'rects.json','utf8')));
+  if(fs.existsSync(W+'rects.json')) Object.assign(R, readJson(W+'rects.json'));
   return Object.entries(R).filter(([n,r])=>r.w>2&&r.h>2&&n!=='FULL'&&n!=='NONE'&&n!=='OUTRO').map(([n,r])=>({n,w:r.w,h:r.h}));
 }
 const [SW, SH] = require('./_paths').frame(W);   /* إطار المقطع: cutz.mp4 بنفس المقاس */
@@ -126,7 +140,7 @@ function bestAnchor(w,h){
   return best;
 }
 if(MODE==='scan'){
-  const tp=W+'theme.json', th=JSON.parse(fs.readFileSync(tp,'utf8'));
+  const tp=W+'theme.json', th=readJson(tp);
   /* نضبط المرساة على أضيق نافذة مستعملة — تنفع الباقي تلقائياً */
   const rects=getRects();
   let worst=null;
@@ -144,14 +158,14 @@ if(MODE==='scan'){
   fs.writeFileSync(tp,JSON.stringify(th,null,1));
   console.log(`\n✅ faceAnchor=${worst.a} — الأحرج ${worst.r.n}: فوق ${Math.round(worst.top)} · تحت ${Math.round(worst.bot)}`);
   /* حدّ الرسم فوق رأسه بصيغة FULL (القاعدة ٨٢): أعلى وجهه ناقص 158 — يختلف حسب قربه من الكاميرا */
-  const sp=W+'safe.json', sj=fs.existsSync(sp)?JSON.parse(fs.readFileSync(sp,'utf8')):{};
+  const sp=W+'safe.json', sj=fs.existsSync(sp)?readJson(sp):{};
   sj.fullFloor=Math.max(260, Math.round(TOP-158));
   fs.writeFileSync(sp,JSON.stringify(sj,null,1));
   console.log(`✅ حدّ الرسم فوق رأسه (fullFloor) = ${sj.fullFloor} → safe.json`);
   if(worst.top < worst.r.h*M_TOP)
     console.log(`⚠️ الهامش فوق الشعر أقل من ${Math.round(M_TOP*100)}٪ — صغّر ارتفاع ${worst.r.n} أو زد عرضها`);
 }else{
-  const th=JSON.parse(fs.readFileSync(W+'theme.json','utf8'));
+  const th=readJson(W+'theme.json');
   const a=typeof th.faceAnchor==='number'?th.faceAnchor:0.30;
   const rects=getRects();
   let bad=0;

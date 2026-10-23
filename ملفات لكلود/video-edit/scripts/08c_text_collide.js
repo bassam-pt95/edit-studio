@@ -2,8 +2,10 @@
    الفاحصان الآخران يمسكان الرسم فوق الوجه وداخل الكابشن، وما يمسكان نصاً فوق نص.
    الاستعمال: node scripts/08c_text_collide.js <work> [خطوة] · يخرج بالرمز 3 لو فيه تداخل */
 const path=require('path'), fs=require('fs');
+const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const W=path.resolve(process.argv[2])+path.sep;
 const STEP=parseFloat(process.argv[3]||'0.3');
+require('./_paths').warnIfNotTall(W);
 const OVERLAP=0.18;   /* نسبة التداخل المسموحة من مساحة الأصغر */
 const MINGAP=22;      /* أقل مسافة رأسية بين نصين متحاذيين أفقياً — أقل منها تُقرأ ملتصقة */
 function resolvePuppeteer(){
@@ -11,9 +13,9 @@ function resolvePuppeteer(){
       path.join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]){
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت أداة الرسم — شغّل scripts/00_setup.sh --install');
+  throw new Error('ما لقيت أداة الرسم (puppeteer-core، للمحرّك الخفيف بس) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
 }
-const CHROME=require('./_paths').chrome();
+const CHROME=require('./_paths').chromeOrExit();
 async function ensureFont(p,FF){
   await p.evaluate(f=>Promise.all([document.fonts.load('700 100px '+f),
     document.fonts.load('400 40px '+f)]).then(()=>document.fonts.ready),FF);
@@ -28,9 +30,9 @@ async function ensureFont(p,FF){
 }
 (async()=>{
   const puppeteer=resolvePuppeteer();
-  const caps=JSON.parse(fs.readFileSync(W+'caps.json','utf8'));
-  const TH=JSON.parse(fs.readFileSync(W+'theme.json','utf8'));
-  const SFX=fs.existsSync(W+'sfx.json')?JSON.parse(fs.readFileSync(W+'sfx.json','utf8')):{outro:0};
+  const caps=readJson(W+'caps.json');
+  const TH=readJson(W+'theme.json');
+  const SFX=fs.existsSync(W+'sfx.json')?readJson(W+'sfx.json'):{outro:0};
   const dur=caps.total+(SFX.outro||0);
   const b=await puppeteer.launch({executablePath:CHROME,headless:'new',
     args:['--no-sandbox','--allow-file-access-from-files','--font-render-hinting=none']});

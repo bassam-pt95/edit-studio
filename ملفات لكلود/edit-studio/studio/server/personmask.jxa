@@ -1,0 +1,40 @@
+// server/personmask.jxa — the person in a run of video frames, with the Mac's own Vision (no install, no compiler).
+//   osascript -l JavaScript personmask.jxa <dir> <count> <out> <w> <h>
+// Reads <dir>/f_000001.jpg … f_<count>.jpg in order (one video's consecutive frames), asks Vision's person segmentation
+// (VNGeneratePersonSegmentationRequest, quality accurate, through one sequence handler so the frames are read as one
+// video) and appends each mask, w×h bytes (0 = not him, 255 = him; top row first), to <out>. A frame Vision could not
+// read (or that is missing) repeats the mask before it. Prints «p <i>» on stderr after each frame (the job's progress).
+ObjC.import('Vision');
+ObjC.import('CoreImage');
+ObjC.import('CoreGraphics');
+ObjC.import('Foundation');
+function run(argv) {
+  const dir = argv[0], count = Number(argv[1]), out = argv[2], W = Number(argv[3]), H = Number(argv[4]);
+  const ctx = $.CIContext.context;
+  const gray = $.CGColorSpaceCreateDeviceGray();
+  $.NSFileManager.defaultManager.createFileAtPathContentsAttributes(out, $.NSData.data, $({}));
+  const fh = $.NSFileHandle.fileHandleForWritingAtPath(out);
+  const data = $.NSMutableData.dataWithLength(W * H);       // zeros until the first mask
+  const req = $.VNGeneratePersonSegmentationRequest.alloc.init;
+  req.qualityLevel = 0;                                      // VNGeneratePersonSegmentationRequestQualityLevelAccurate
+  req.outputPixelFormat = 1278226488;                        // kCVPixelFormatType_OneComponent8
+  const seq = $.VNSequenceRequestHandler.alloc.init;
+  for (let i = 1; i <= count; i++) {
+    const p = `${dir}/f_${String(i).padStart(6, '0')}.jpg`;
+    try {
+      if ($.NSFileManager.defaultManager.fileExistsAtPath(p) && seq.performRequestsOnImageURLError($([req]), $.NSURL.fileURLWithPath(p), null)) {
+        const r = req.results;
+        if (r && r.count > 0) {
+          let m = $.CIImage.imageWithCVPixelBuffer(r.firstObject.pixelBuffer);
+          const e = m.extent;
+          m = m.imageByApplyingTransform($.CGAffineTransformMakeScale(W / e.size.width, H / e.size.height));
+          ctx.renderToBitmapRowBytesBoundsFormatColorSpace(m, data.mutableBytes, W, $.CGRectMake(0, 0, W, H), $.kCIFormatL8, gray);
+        }
+      }
+    } catch (e) { /* this frame: the mask before it */ }
+    fh.writeData(data);
+    console.log(`p ${i}`);
+  }
+  fh.closeFile;
+  return 'ok';
+}

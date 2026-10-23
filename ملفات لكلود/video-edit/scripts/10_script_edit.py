@@ -13,7 +13,10 @@
 يعدّل: cut.json (مقاطع الفيديو) · caps.json (الكابشن) · sfx.json (أوقات المؤثرات).
 بعده: أعد بناء الفيديو ← 03_cut_zoom.py ثم استخراج الفريمات ثم الرسم.
 """
-import json, os, sys, shutil
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json, shutil
 
 W = os.path.abspath(sys.argv[1])
 CMD = sys.argv[2] if len(sys.argv) > 2 else "show"
@@ -22,13 +25,13 @@ ARGS = [a for a in sys.argv[3:] if not a.startswith("--")]
 P = lambda n: os.path.join(W, n)
 PAD_L, PAD_R, MIN_SEG = 0.08, 0.12, 0.20
 
-def load(n): return json.load(open(P(n), encoding="utf-8"))
+def load(n): return _paths.read_json(P(n))
 def save(n, d):
     if DRY: return
     if os.path.exists(P(n)):
         if not os.path.exists(P(n + ".orig")): shutil.copy(P(n), P(n + ".orig"))
         shutil.copy(P(n), P(n + ".bak"))
-    json.dump(d, open(P(n), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    _paths.write_json(P(n), d)
 
 
 # ── كشف الجملة المعادة ─────────────────────────────────────────────────────
@@ -106,7 +109,7 @@ elif CMD == "keep":
 elif CMD == "apply":
     if not os.path.exists(P("script.txt")): sys.exit("❌ ما فيه script.txt — شغّل show أول")
     alive = set()
-    for ln in open(P("script.txt"), encoding="utf-8"):
+    for ln in open(P("script.txt"), encoding="utf-8-sig"):   # -sig: المفكرة قد تحفظه بـBOM
         ln = ln.strip()
         if not ln or ln.startswith("#"): continue
         head = ln.split(None, 1)[0]
@@ -197,8 +200,8 @@ if os.path.exists(P("sfx.json")):
 
 print(f"""
 ✅ تم. الحين أعد بناء الفيديو:
-   python3 scripts/03_cut_zoom.py {W}
-   mkdir -p {W}/vfr && ffmpeg -v error -i {W}/cutz.mp4 -vf fps=30 -q:v 3 -y {W}/vfr/%05d.jpg
-   node scripts/04_render_frames.js {W} all --force     (أو 04b_remotion.sh {W} render)
+   python3 scripts/03_cut_zoom.py {_paths.shq(W)}
+   mkdir -p {_paths.shq(W+"/vfr")} && ffmpeg -v error -i {_paths.shq(W+"/cutz.mp4")} -vf fps=30 -q:v 3 -y {_paths.shq(W+"/vfr/%05d.jpg")}
+   node scripts/04_render_frames.js {_paths.shq(W)} all --force     (أو 04b_remotion.sh {_paths.shq(W)} render)
 ⚠️ لو كنت مصمّماً مشاهد بأوقات ثابتة — أوقاتها انزاحت، راجعها.
-↩️ للتراجع: python3 scripts/10_script_edit.py {W} undo""")
+↩️ للتراجع: python3 scripts/10_script_edit.py {_paths.shq(W)} undo""")

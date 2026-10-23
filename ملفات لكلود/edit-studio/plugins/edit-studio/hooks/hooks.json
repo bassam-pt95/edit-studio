@@ -1,0 +1,13 @@
+{
+  "description": "A studio project's project.json and plan.json are written only through the studio's tools",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/studio-files.mjs\"", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

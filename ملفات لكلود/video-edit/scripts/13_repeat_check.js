@@ -5,11 +5,12 @@
    شلون: يقرأ دوال المشاهد (kN/jN) من compose.html، يطلّع الدوال اللي تستدعيها،
          يطابقها بـmechanisms.json، ويسقط لو أي آلية استُعملت في آخر مقطعين.        */
 const fs=require('fs'), path=require('path');
+const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const W=path.resolve(process.argv[2])+path.sep;
 const NAME=process.argv[3]||'(بلا اسم)';
 const P=require('./_paths'); P.ensure();
 const MF=P.data('mechanisms.json');
-const M=fs.existsSync(MF)?JSON.parse(fs.readFileSync(MF,'utf8')):{videos:[],mechs:{},rejected:[],sounds:{}};
+const M=fs.existsSync(MF)?readJson(MF):{videos:[],mechs:{},rejected:[],sounds:{}};
 if(!M.videos.length){ console.log('✅ السجل فاضي (أول مقطع) — ما فيه شي يتكرر'); process.exit(0); }
 /* ريموشن: المشاهد مكوّنات بـScenes.tsx — كان الفاحص يقرأ compose.html بس فيطلّع «مشاهد: 0»
    ويقول «ولا آلية مكرّرة» وهو ما فحص شيئاً. */

@@ -4,21 +4,23 @@
    node 04_render_frames.js <workdir> range 12.0 18.5           ← يعيد رسم نافذة وحدة بس (بعد تعديل مشهد)
    node 04_render_frames.js <workdir> preview 4.6 12.3 31.0     */
 const path=require('path'), fs=require('fs');
+const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const W=path.resolve(process.argv[2])+path.sep;
-const CFG=JSON.parse(fs.readFileSync(W+'sfx.json','utf8'));       // فيه outro
-const THEME=fs.existsSync(W+'theme.json')?JSON.parse(fs.readFileSync(W+'theme.json','utf8')):{};
-const BEHIND=fs.existsSync(W+'behind.json')?JSON.parse(fs.readFileSync(W+'behind.json','utf8')):null;  // الكلام ورا الشخص
-const MARKS=fs.existsSync(W+'marks.json')?JSON.parse(fs.readFileSync(W+'marks.json','utf8')):[];   // تحديدات ذكية على لقطات (من Vision)  // الكلام ورا الشخص
+const CFG=readJson(W+'sfx.json');       // فيه outro
+const THEME=fs.existsSync(W+'theme.json')?readJson(W+'theme.json'):{};
+const BEHIND=fs.existsSync(W+'behind.json')?readJson(W+'behind.json'):null;  // الكلام ورا الشخص
+const MARKS=fs.existsSync(W+'marks.json')?readJson(W+'marks.json'):[];   // تحديدات ذكية على لقطات (من Vision)  // الكلام ورا الشخص
 const OUT_D=CFG.outro, FPS=30;
+require('./_paths').warnIfNotTall(W);
 function resolvePuppeteer(){
   for(const p of [process.env.PUPPETEER_PATH,'puppeteer-core','puppeteer',
       path.join(process.cwd(),'node_modules/puppeteer-core'),
       require('path').join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]) {
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت puppeteer-core — ثبّته: npm i puppeteer-core');
+  throw new Error('ما لقيت puppeteer-core (أداة المحرّك الخفيف) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
 }
-const CHROME=require('./_paths').chrome();
+const CHROME=require('./_paths').chromeOrExit();
 /* ينتظر نزول الخط فعلياً ويتأكد منه بالقياس — يرجّع false لو الخط ما وصل */
 async function ensureFont(p,FF){
   await p.evaluate(f=>Promise.all([document.fonts.load('700 100px '+f),
@@ -41,7 +43,7 @@ async function ensureFont(p,FF){
 (async()=>{
   const puppeteer=resolvePuppeteer();
   const mode=process.argv[3]||'all';
-  const caps=JSON.parse(fs.readFileSync(W+'caps.json','utf8'));
+  const caps=readJson(W+'caps.json');
   const NVF=fs.readdirSync(W+'vfr').filter(f=>f.endsWith('.jpg')).length;
   const dur=caps.total+OUT_D;
   const b=await puppeteer.launch({executablePath:CHROME,headless:'new',

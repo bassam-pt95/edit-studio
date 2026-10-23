@@ -53,6 +53,7 @@
 
 
 **بعد السؤال ٦، ابنِ الهوية** (من مجلد المهارة، وهو يكتب `profile.json` بمجلد بياناته):
+(ويندوز/PowerShell: كل قيمة بتنصيص، مثل `--handle '@yourname'`؛ الأمر يرفض قيمة تبدأ بـ`--`.)
 `python3 scripts/make_theme.py --bg … --acc … --font … --handle … [--ink …] [--caption 55|65] [--numerals western|arabic] [--font-local] [--font-display …] [--logo …] [--bg-style …]`
 وبعده افتح `profile.json` وعدّل بيدك المفتاحين اللي ما لهم خيار بالأمر: `captionStyle` (`card` أو `slim`) و`noZoom` (`true` للقريب من الكاميرا).
 
@@ -73,7 +74,7 @@
 **١١. التسليم:** وين يبي الملف النهائي؟ (الافتراضي: نفس مجلد الفيديو الأصلي.)
 
 ### اكتب الإجابات
-`profile.json` (بعد `make_theme.py`) — أضف:
+`profile.json` (بعد `make_theme.py`) — أضف (ويندوز: المسارات داخله بـ`/` ومسار كامل بلا `~`، مثل `"soundLibrary": "C:/Users/<اسمه>/Music/SFX"`؛ وتُكتب بأداة Write أو بايثون، لا بـ`>` من PowerShell):
 ```json
 "prefs": {
   "contentType": "شرح", "style": "simple",

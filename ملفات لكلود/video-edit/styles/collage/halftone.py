@@ -27,6 +27,8 @@ def sticker(src,out,thr=95):
     s=Image.new('RGBA',c.size,(0,0,0,0)); s.paste(Image.new('RGBA',c.size,(240,236,228,255)),(0,0),edge)
     s.paste(Image.new('RGBA',c.size,(30,28,26,255)),(0,0),A); s=s.crop(s.getbbox()); s.save(out); print(out,s.size)
 if __name__=='__main__':
+    import os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts'))
+    import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: print لمسار عربي يطيح — يعيد التشغيل بـ-X utf8 (ماك: لا شي)
     m=sys.argv[1]
     if m=='ht': halftone(sys.argv[2],sys.argv[3],int(sys.argv[4]) if len(sys.argv)>4 else 6,
                          tuple(map(int,sys.argv[5:9])) if len(sys.argv)>8 else None)

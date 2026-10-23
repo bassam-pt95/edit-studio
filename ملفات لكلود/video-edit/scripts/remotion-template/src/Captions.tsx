@@ -73,7 +73,7 @@ export const Captions: React.FC<{t:number}> = ({t}) => {
         borderRadius: SLIM ? 22 : 38, padding:`${PADY}px ${PADX}px`,
         boxShadow: SLIM ? '0 6px 22px rgba(0,0,0,0.34)' : `0 20px 48px ${rgba(T.ink,0.30)}`,
         textShadow: SLIM ? '0 2px 10px rgba(0,0,0,0.85)' : undefined,
-        fontFamily:T.font, fontWeight:CAP.weight, fontSize:CAP.size, lineHeight:`${LH}px`,
+        fontFamily:`"${T.font}", "Segoe UI", Tahoma, sans-serif`, fontWeight:CAP.weight, fontSize:CAP.size, lineHeight:`${LH}px`,
         textAlign:'center', color: SLIM ? '#FFFFFF' : T.ink}}>
         {lines.map((ln,li) => (
           <div key={li} style={{whiteSpace:'nowrap'}}>

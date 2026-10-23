@@ -11,7 +11,10 @@
   ريموشن الافتراضي: بلا وسم · مصفوفة 601 · ΔY −1.7 · ميل R/B 1.8 (يلاحظها صاحب المقطع بعينه)
   الصح (وسيط 444 + --color-space bt709): موسوم · ΔY +0.0 · ميل 0.0
 """
-import sys, os, json, subprocess, numpy as np
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import json, subprocess, numpy as np
 
 if len(sys.argv) < 3:
     print(__doc__); sys.exit(2)
@@ -29,13 +32,13 @@ W_, H_ = _paths.frame(W)                            # إطار المقطع
 REG = (slice(450, 1150), slice(140, 940)) if H_ > W_ else (slice(int(H_*0.15), int(H_*0.70)), slice(int(W_*0.30), int(W_*0.70)))
 # لتقسيمات خاصة (شاشة مقسومة فوق/تحت): safe.json ← "colorRegion": [y0, y1, x0, x1] — منطقة وجهه بلا كابشن ولا رسم
 _sj = os.path.join(W, "safe.json")
-if os.path.exists(_sj) and "colorRegion" in json.load(open(_sj)):
-    _r = json.load(open(_sj))["colorRegion"]; REG = (slice(_r[0], _r[1]), slice(_r[2], _r[3]))
+if os.path.exists(_sj) and "colorRegion" in _paths.read_json(_sj):
+    _r = _paths.read_json(_sj)["colorRegion"]; REG = (slice(_r[0], _r[1]), slice(_r[2], _r[3]))
 
 def probe(f):
     o = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                         "stream=color_range,color_space,color_primaries,color_transfer,width,height",
-                        "-of", "json", f], capture_output=True, text=True).stdout
+                        "-of", "json", f], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     return json.loads(o)["streams"][0]
 
 def planes(f, t):
@@ -62,10 +65,10 @@ def rgb_as_player(f, t):
 # لحظات القياس: منتصف نوافذ FULL الأطول من ثانيتين، وإلا خمس لحظات موزّعة
 ts = []
 dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                            "-of", "csv=p=0", SRC], capture_output=True, text=True).stdout)
+                            "-of", "csv=p=0", SRC], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout)
 sp = os.path.join(W, "stage.json")
 if os.path.exists(sp):
-    st = json.load(open(sp)); st = st if isinstance(st, list) else st.get("stage", [])
+    st = _paths.read_json(sp); st = st if isinstance(st, list) else st.get("stage", [])
     # ⛔ آخر نافذة بالجدول تنتهي عند 999 (حارس): بدون القصّ على المدة تطلع اللحظة بعد نهاية الملف فما يُقرأ شي
     # ⛔ الزوم يخدع القياس: هوك الزوم (أول ٤٫٦ ث) وانجراف النوافذ الأطول من ٨ ث (stage.ts vzoom) يزيحان الصورة
     #    فتطلع «ميل لوني» كاذب (قِيس: 2.5 بالهوك مقابل 0.0 بنافذة قصيرة). نقيس بالنوافذ القصيرة بعد الهوك أولاً.

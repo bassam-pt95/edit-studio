@@ -57,7 +57,7 @@ export const Outro: React.FC<{t:number}> = ({t}) => {
         display:'flex', alignItems:'center', justifyContent:'center', gap:16}}>
         {HAS_LOGO && <Img src={staticFile('logo.png')} style={{width:46, height:46}} />}
         <span dir="ltr" style={{fontWeight:700, fontSize:36, color:T.mut,
-          fontFamily:'"Helvetica Neue", Helvetica, Arial, sans-serif'}}>{T.handle}</span>
+          fontFamily:'"Helvetica Neue", "Segoe UI", Helvetica, Arial, sans-serif'}}>{T.handle}</span>
       </div>
      </div>
     </div>

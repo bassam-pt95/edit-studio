@@ -59,7 +59,7 @@ export const Badge: React.FC<{t:number}> = ({t}) => {
     <div style={{position:'absolute', left:52, top:HANDLE_Y, opacity:a*0.92,
       display:'flex', alignItems:'center', gap:12}}>
       {HAS_LOGO && <Img src={staticFile('logo.png')} style={{width:34, height:34, opacity:0.7}} />}
-      <span dir="ltr" style={{fontFamily:'"Helvetica Neue", Helvetica, Arial, sans-serif',
+      <span dir="ltr" style={{fontFamily:'"Helvetica Neue", "Segoe UI", Helvetica, Arial, sans-serif',
         fontWeight:600, fontSize:28, color:rgba(T.ink,0.62),
         textShadow:`0 2px 14px ${rgba(T.bg,0.85)}, 0 0 6px ${rgba(T.bg,0.9)}`}}>{T.handle}</span>
     </div>);

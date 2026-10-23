@@ -8,9 +8,10 @@
    نرسم الكلمة ممدودة بالكشيدة تحته، ثم نرجّع جسمه فوقها — فالكشيدة وحدها تمرّ ورا الراس
    والحروف تبقى بارزة على الجانبين.  يحتاج: ffmpeg + (ماك: أدوات Xcode · ويندوز: mediapipe). */
 const path=require('path'), fs=require('fs'), cp=require('child_process');
+const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const W=path.resolve(process.argv[2])+path.sep, MODE=process.argv[3]||'plan';
 const SC=path.dirname(path.resolve(process.argv[1]))+path.sep;
-const caps=JSON.parse(fs.readFileSync(W+'caps.json','utf8'));
+const caps=readJson(W+'caps.json');
 const FPS=30, MAXW=4, MINDUR=0.85;
 
 const words=c=>c.w.map(w=>w.t).join(' ');
@@ -67,7 +68,14 @@ for(const [f0,f1] of ranges) for(let f=f0;f<=f1;f++){
 console.log('فريمات التأثير:',copied,'— أقصّ الشخص فيها…');
 
 /* 3) القصّ + بيانات الوجه */
-cp.execSync(PM+' '+JSON.stringify(W+'bt/src')+' '+JSON.stringify(W+'bt/mask')+' accurate 2.5',{stdio:'inherit'});
+{
+  const K=require('./_paths'), r=K.runPersonmask(PM,W+'bt/src',W+'bt/mask','accurate',2.5);
+  if(!r.ok){ console.log('❌ '+K.personmaskProblem(r).text); process.exit(r.status===3?4:1); }
+  if(r.stdout) process.stdout.write(r.stdout);
+  /* ⛔ أقنعة ناقصة = فريمات ما انقرت (مثلاً مسار عربي يقرأه OpenCV غلط): لا نكمّل ونطلّع «جاهز» وهو فاضي */
+  const nm=fs.readdirSync(W+'bt/mask').filter(f=>f.endsWith('.png')).length;
+  if(nm<copied*0.9){ console.log('❌ الأقنعة '+nm+' من '+copied+' فريم — القاصّ ما قرأ الفريمات. شغّل من مجلد اسمه لاتيني بلا مسافات'); process.exit(3); }
+}
 
 /* 4) دمج القناع كشفافية → صورة الشخص وحده (كل مدى على حدة) */
 for(const [f0,f1] of ranges){
@@ -78,9 +86,9 @@ for(const [f0,f1] of ranges){
     ' -start_number '+f0+' -y '+JSON.stringify(W+'bt/person/%05d.png'),{stdio:'pipe'});
 }
 
-const meta=JSON.parse(fs.readFileSync(W+'bt/mask/meta.json','utf8'));
+const meta=readJson(W+'bt/mask/meta.json');
 const faces={};
 for(const m of meta) if(m.face) faces[parseInt(m.f,10)]=m.face;
 fs.writeFileSync(W+'behind.json',JSON.stringify({lines,ranges,faces},null,1));
 console.log('✅ behind.json جاهز —',lines.length,'جملة يمرّ كلامها ورا الشخص.');
-console.log('   الحين ارسم: node 04_render_frames.js '+W+' all --force');
+console.log('   الحين ارسم: node scripts/04_render_frames.js "'+W.replace(/\\/g,'/').replace(/\/$/,'')+'" all --force');

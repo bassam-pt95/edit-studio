@@ -20,7 +20,7 @@ export const Ad: React.FC = () => {
   const preview = !getRemotionEnvironment().isRendering;
 
   return (
-    <AbsoluteFill style={{background:T.bg, fontFamily:T.font}}>
+    <AbsoluteFill style={{background:T.bg, fontFamily:`"${T.font}", "Segoe UI", Tahoma, sans-serif`}}>
       <LiveBG t={t} />
       {/* ⛔ لا تحط zIndex على نافذة الفيديو. حطّيتها 2 عشان تعلو خلفية الخاتمة،
           فصارت تعلو **كل** المكوّنات (z-index:2 يسبق z-index:auto مهما كان ترتيب DOM)

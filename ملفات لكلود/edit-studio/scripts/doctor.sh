@@ -3,6 +3,7 @@
 #   bash doctor.sh     الخروج = عدد المشكلات (0 = كل شي جاهز). التنبيهات (⚠) لا تُحسب مشكلات.
 . "$(dirname "$0")/_common.sh"
 P=0; W=0
+refresh_path      # ويندوز: أدوات ثبّتناها للتو (winget) ما يشوفها كلود إلا بعد إعادة تشغيله، فنقرا PATH من السجل (الماك: لا شي)
 ok(){ echo "✓ $1"; }
 bad(){ echo "✗ $1"; P=$((P+1)); }
 warn(){ echo "⚠ $1"; W=$((W+1)); }
@@ -11,6 +12,7 @@ echo "تقرير $STUDIO_NAME ($(date '+%Y-%m-%d %H:%M'))"
 
 # الجهاز
 if [ "$OS" = win ]; then ok "الجهاز: ويندوز ($(uname -m))"
+  if win_arm; then warn "معالج الجهاز ARM: الاستوديو نفسه يعمل، لكن بعض أدوات الوجه والتفريغ (mediapipe وctranslate2) ما لها نسخة ARM جاهزة، فقد يتعذّر تثبيتها أو تشتغل ببطء تحت المحاكاة. بايثون ARM الأصلي أفضل"; fi
 elif device_ok; then ok "الجهاز: ماك بمعالج أبل، macOS $(sw_vers -productVersion 2>/dev/null)"
 else bad "الجهاز غير مدعوم: $(uname -sm). $MSG_DEVICE"; echo "النتيجة: الاستوديو لا يعمل على هذا الجهاز."; exit 1; fi
 
@@ -31,11 +33,26 @@ command -v ffprobe >/dev/null 2>&1 && ok "ffprobe" || bad "ffprobe غير موج
 # Python + التفريغ (مهارة المونتاج)
 # أداة التفريغ: mlx_whisper على ماك أبل، faster_whisper على ويندوز (نفس اللي يثبّته تجهيز مهارة المونتاج)
 STT_MOD=mlx_whisper; [ "$OS" = win ] && STT_MOD=faster_whisper
-if command -v "$PYBIN" >/dev/null 2>&1; then
+if have_python; then
   PV="$("$PYBIN" -c 'import platform;print(platform.python_version())' 2>/dev/null)"
   if "$PYBIN" -c "import $STT_MOD" 2>/dev/null; then
     if [ -d "$HOME/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-mlx" ] || [ -d "$HOME/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3" ]; then ok "Python $PV مع أداة التفريغ ونموذجها"
     else ok "Python $PV مع أداة التفريغ"; warn "نموذج التفريغ يُنزَّل أول مرة (~3 غيغابايت)"; fi
+    if [ "$OS" = win ]; then
+      # كرت NVIDIA بدون مكتبات CUDA 12 (cuBLAS وcuDNN): التفريغ يختار الكرت (device auto) ثم يتوقف برسالة cublas64_12.dll
+      CU="$("$PYBIN" -c "import ctranslate2 as c, ctypes.util as u; print(c.get_cuda_device_count(), int(bool(u.find_library('cublas64_12'))), int(bool(u.find_library('cudnn64_9'))))" 2>/dev/null)"
+      set -- $CU
+      if [ "${1:-0}" -gt 0 ] 2>/dev/null && { [ "${2:-1}" = 0 ] || [ "${3:-1}" = 0 ]; }; then
+        warn "عندك كرت NVIDIA لكن مكتبات CUDA 12 (cuBLAS وcuDNN) ما انلقت على PATH: التفريغ قد يتوقف برسالة cublas64_12.dll. الحل: ثبّت CUDA 12 من موقع NVIDIA، أو شغّل التفريغ على المعالج (device cpu)"
+      fi
+      # PyAV 15 فأعلى يكسر faster-whisper (open() got an unexpected keyword argument 'metadata_errors')
+      AV="$("$PYBIN" -c 'import av;print(av.__version__.split(".")[0])' 2>/dev/null)"
+      case "$AV" in ""|*[!0-9]*) ;; *) [ "$AV" -ge 15 ] && warn "مكتبة PyAV نسختها $AV تكسر التفريغ مع faster-whisper. الحل: $PYBIN -m pip install \"av<15\" --only-binary=:all:" ;; esac
+      # مسار بايثون أو مجلد البيانات بحروف غير إنجليزية: OpenCV وmediapipe ما يفتحونه
+      PP="$(command -v "$PYBIN" 2>/dev/null)"
+      if printf '%s' "$PP" | LC_ALL=C grep -q '[^ -~]'; then warn "مسار بايثون فيه حروف غير إنجليزية ($PP): mediapipe قد يفشل بـFileNotFoundError وأزرار الوجه ما تطلع. ثبّت بايثون في مسار إنجليزي مثل C:\\Python312"; fi
+      if printf '%s' "$(wp "$DATA")" | LC_ALL=C grep -q '[^ -~]'; then warn "مجلد البيانات فيه حروف غير إنجليزية ($(wp "$DATA")): أدوات الصور والوجه قد ما تفتح الملفات. اضبط VEB_HOME على مسار إنجليزي مثل C:/EditStudio"; fi
+    fi
   else bad "Python $PV بلا أداة التفريغ (يثبّتها تجهيز مهارة المونتاج)"; fi
   # كاشف الوجه: الماك عنده حقه، وويندوز يستخدم mediapipe (مكان فاضي، الكابشن والوجه، وسّط الوجه)
   if [ "$OS" = win ]; then
@@ -45,12 +62,15 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
   fi
 else bad "Python غير موجود"; fi
 
-# Chrome (المعاينة والتصدير)
-if has_chrome; then ok "متصفح Google Chrome"
+# Chrome (المعاينة والتصدير). ويندوز: كروم أو Edge، ونفس الملف اللي ينفحص هنا هو اللي يمرّره studio.sh للتصدير
+if has_chrome; then
+  if [ "$OS" = win ]; then ok "متصفح للتصدير: $(basename "$(app_browser_win)")"; else ok "متصفح Google Chrome"; fi
 else bad "متصفح Google Chrome غير موجود (التصدير يحتاجه): نزّله من google.com/chrome"; fi
+# ويندوز: «الحماية من برامج الفدية» تمنع node وffmpeg من الكتابة في المستندات (تنبيه فقط، ما نعرف مجلدك إن كان محمياً)
+cfa_enabled && warn "$MSG_CFA"
 
 # مجلد البيانات
-if mkdir -p "$DATA" 2>/dev/null && touch "$DATA/.write-test" 2>/dev/null; then rm -f "$DATA/.write-test"; ok "مجلد البيانات قابل للكتابة: $DATA"
+if mkdir -p "$DATA" 2>/dev/null && touch "$DATA/.write-test" 2>/dev/null; then rm -f "$DATA/.write-test"; ok "مجلد البيانات قابل للكتابة: $(wp "$DATA")"
 else bad "تعذّرت الكتابة في $DATA"; fi
 FREE_GB="$(df -Pk "$DATA" 2>/dev/null | awk 'NR==2{printf "%d", $4/1048576}')"
 if [ "${FREE_GB:-0}" -lt 3 ]; then bad "المساحة المتاحة ${FREE_GB:-0} غيغابايت فقط (يلزم 3 على الأقل، والأفضل 5)"
@@ -81,9 +101,15 @@ if installed && [ -n "$NODE" ]; then
   # يعمل؟ المنفذ؟
   URL="$("$NODE" "$APP/studio/start.mjs" --url 2>/dev/null)"
   if [ -n "$URL" ]; then ok "الاستوديو يعمل الآن: $URL"
-  elif { [ "$OS" = win ] && netstat -ano 2>/dev/null | grep -q ":8795 .*LISTENING"; } || { [ "$OS" != win ] && lsof -nP -iTCP:8795 -sTCP:LISTEN >/dev/null 2>&1; }; then warn "الاستوديو لا يعمل الآن، والمنفذ 8795 مشغول ببرنامج آخر (سيأخذ منفذاً قريباً)"
+  elif [ "$OS" = win ]; then
+    # ويندوز: Hyper-V وDocker وWSL2 يحجزون مدى منافذ (netstat ما يشوف الحجز). نجرّب الربط فعلاً، بنفس اللي يسويه الاستوديو
+    FP="$("$NODE" "$APP/studio/start.mjs" --free-port 2>/dev/null)"
+    if [ "$FP" = 8795 ]; then ok "الاستوديو لا يعمل الآن، والمنفذ 8795 متاح"
+    elif [ -n "$FP" ] && [ "$FP" != none ]; then warn "الاستوديو لا يعمل الآن، والمنفذ 8795 مشغول أو محجوز لبرنامج آخر (Hyper-V أو Docker أو WSL2 يحجزون مدى منافذ). سيأخذ المنفذ $FP"
+    else bad "ما فيه منفذ متاح بين 8795 و8814 (محجوزة لبرنامج آخر مثل Hyper-V أو Docker). أعد تشغيل الجهاز، أو شغّل net stop winnat ثم net start winnat من PowerShell كمدير"; fi
+  elif lsof -nP -iTCP:8795 -sTCP:LISTEN >/dev/null 2>&1; then warn "الاستوديو لا يعمل الآن، والمنفذ 8795 مشغول ببرنامج آخر (سيأخذ منفذاً قريباً)"
   else ok "الاستوديو لا يعمل الآن، والمنفذ 8795 متاح"; fi
-  [ -e "$HOME/Desktop/${STUDIO_APP_NAME:-Edit Studio}.$DESK_EXT" ] && ok "تطبيق سطح المكتب موجود" || warn "تطبيق سطح المكتب غير موجود"
+  [ -e "$(desk_dir)/${STUDIO_APP_NAME:-Edit Studio}.$DESK_EXT" ] && ok "تطبيق سطح المكتب موجود" || warn "تطبيق سطح المكتب غير موجود"
 elif installed; then
   warn "الاستوديو مثبّت، وفحص ملفاته يحتاج Node أولاً"
 else

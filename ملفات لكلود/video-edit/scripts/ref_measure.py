@@ -7,7 +7,10 @@
   ffmpeg -i ref.mp4 -vf "fps=12,scale=160:90,format=gray" -f rawvideo v.raw -y
   python3 measure_ref.py a.raw v.raw
 """
-import sys, numpy as np
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import numpy as np
 SR, FPS, W, H, HOP = 22050, 12, 160, 90, 1024
 a = np.fromfile(sys.argv[1] if len(sys.argv) > 1 else 'a.raw', dtype=np.float32)
 v = np.fromfile(sys.argv[2] if len(sys.argv) > 2 else 'v.raw', dtype=np.uint8).reshape(-1, H, W).astype(np.float32)

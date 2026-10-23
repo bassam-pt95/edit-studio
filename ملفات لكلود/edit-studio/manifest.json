@@ -1,7 +1,7 @@
 {
  "name": "edit-studio",
  "title": "استوديو المونتاج",
- "version": "1.0.0",
+ "version": "1.0.1",
  "built": "2026-10-23",
  "files": {
   "studio/public/css/assistant.css": "ad5c366a89e8fd824b226ddb641ad0c555a40bbf21db068492f3ab84d34087ec",
@@ -129,7 +129,7 @@
   "studio/public/js/timeline/geometry.js": "13311a737321fe699075bfa6f0c5a2b00ba02f243a07781c36d72ae4d86124cc",
   "studio/public/js/timeline/heads.js": "815b55ce5ec25d8080ea2ef9b92a759c7d458ad124c7e57a91bb676fb99a5f5c",
   "studio/public/js/timeline/hit.js": "ebc5a6020a2ef5f6550fcb6b32b1ef2870121fe3e8c28b73353b62418382602a",
-  "studio/public/js/timeline/interact.js": "7bffe6803d04c3a68dba95cfcfcecb811492f5f8e826e9c244cf6803f7b6766b",
+  "studio/public/js/timeline/interact.js": "b097f5f05073b53aa58150b66ee32e5b2599e4691e3c25c9b28dee23c3186917",
   "studio/public/js/timeline/navigator.js": "83d0dbebef5a073ab7c5af72752793c31c73eddfbf86b2afb9aca6bea1d37c7e",
   "studio/public/js/timeline/ruler.js": "21ef5c662c75b893a395f69ca45e4bae1d3fb836873ce0ba4b1e0c3abee128eb",
   "studio/public/js/timeline/timeline.js": "182a650555fc791693cd56e89462f5512be07c20fa21bdbb0592ea7fb6942f35",

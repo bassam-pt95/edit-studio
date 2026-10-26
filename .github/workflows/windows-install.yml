@@ -75,7 +75,7 @@ jobs:
       - name: desktop shortcut
         shell: pwsh
         run: |
-          $l = Join-Path $HOME "Desktop/Edit Studio.lnk"
+          $l = Join-Path $HOME "Desktop/B Studio.lnk"
           if (!(Test-Path $l)) { throw "no shortcut on the desktop" }
           $s = (New-Object -ComObject WScript.Shell).CreateShortcut($l)
           "target: $($s.TargetPath)"; "icon: $($s.IconLocation)"
@@ -91,7 +91,7 @@ jobs:
           ! grep -q "an older copy" "$HOME/.claude/skills/edit-studio/SKILL.md"
           ls "$HOME/edit-studio-old"
       - name: the guide is on the Desktop
-        run: ls -la "$HOME/Desktop/" && test -f "$HOME/Desktop/دليل استوديو المونتاج.pdf"
+        run: ls -la "$HOME/Desktop/" && test -f "$HOME/Desktop/دليل B Studio.pdf"
       - name: doctor
         if: always()
         run: bash "$HOME/Documents/video-edit/studio/app/scripts/doctor.sh" || echo "doctor exit $?"

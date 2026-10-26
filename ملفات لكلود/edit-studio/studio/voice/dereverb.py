@@ -2,7 +2,12 @@
 
 
 
-import sys, time, numpy as np, soundfile as sf
+
+
+import os, sys, time
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1'); os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '1')
+from concurrent.futures import ThreadPoolExecutor
+import numpy as np, soundfile as sf
 from nara_wpe.wpe import wpe
 from nara_wpe.utils import stft, istft
 src, dst = sys.argv[1], sys.argv[2]
@@ -12,10 +17,15 @@ t = time.time()
 size, shift = 2048, 512
 
 
+POOL = ThreadPoolExecutor(max_workers=max(1, min(16, (os.cpu_count() or 2) // 2)))
+
+
 def clean(seg):
     Y = stft(seg.T, size=size, shift=shift).transpose(2, 0, 1)
-    Z = wpe(Y, taps=taps, delay=3, iterations=3, statistics_mode='full').transpose(1, 2, 0)
-    return istft(Z, size=size, shift=shift)[:, :seg.shape[0]].T
+
+    def job(a): Y[a:a + 16] = wpe(Y[a:a + 16], taps=taps, delay=3, iterations=3, statistics_mode='full')
+    list(POOL.map(job, range(0, Y.shape[0], 16)))
+    return istft(Y.transpose(1, 2, 0), size=size, shift=shift)[:, :seg.shape[0]].T
 
 
 n = x.shape[0]

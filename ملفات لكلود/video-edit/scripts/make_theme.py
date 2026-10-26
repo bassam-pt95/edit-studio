@@ -13,7 +13,9 @@
   • --bg-style  ملمس الخلفية: grain حبيبات (الافتراضي) · lines شبكة خطوط · dots شبكة نقاط · both حبيبات مع شبكة
 الافتراضي يكتب لمجلد بياناته: profile.json — ومنه ينسخ كل مقطع theme.json حقه.
 """
-import os, sys
+import sys, os, json, colorsys
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
 import json, colorsys
@@ -21,9 +23,8 @@ import json, colorsys
 def arg(k, d=None):
     if k not in sys.argv: return d
     i = sys.argv.index(k) + 1
-    # ⛔ PowerShell يقرأ @name بلا تنصيص كـsplat فيختفي، وقيمة --handle تصير الفلاق اللي بعدها: نرفض قيمة تبدأ بـ-- بدل ما نحفظ «--out» كحساب
-    if i >= len(sys.argv) or sys.argv[i].startswith('--'):
-        print(f"⛔ {k} بلا قيمة (أو قيمته فلاق ثاني). اكتب القيمة بين تنصيص: {k} '@name'"); sys.exit(2)
+    if i >= len(sys.argv) or sys.argv[i].startswith('--'):   # القيمة ضاعت (مثل @name بلا تنصيص بـPowerShell) — لا ناخذ الخيار اللي بعده كقيمة
+        sys.exit(f'⛔ قيمة {k} ناقصة — حط القيم بين علامتي تنصيص')
     return sys.argv[i]
 
 def hx(c):

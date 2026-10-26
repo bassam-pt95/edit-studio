@@ -6,15 +6,16 @@
 (نوافذ FULL من stage.json)، ويقيس ثلاثة أشياء لا تُترك للظن:
   ① الأوسمة: المسلَّم لازم يكون موسوماً bt709 / tv مثل المصدر. بلا وسم، المشغّل يفكّه بمصفوفة غلط.
   ② القنوات المخزّنة Y/U/V (بلا فك لـRGB، فما يتدخّل المفكّك): |ΔY| ≤ 0.6 · |ΔU|,|ΔV| ≤ 0.4
+     (ملف بمدى كامل pc يتحوّل لـtv قبل القياس، فالمقارنة مثل بمثل)
   ③ الميل اللوني بعد الفك كما يفكّه المشغّل (وسم الملف نفسه): |ΔR−ΔB| ≤ 0.8
 يخرج بالرمز 3 لو أي شرط انكسر. الأرقام مقيسة على مقطع حقيقي:
   ريموشن الافتراضي: بلا وسم · مصفوفة 601 · ΔY −1.7 · ميل R/B 1.8 (يلاحظها صاحب المقطع بعينه)
   الصح (وسيط 444 + --color-space bt709): موسوم · ΔY +0.0 · ميل 0.0
 """
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json, subprocess, numpy as np
+import sys, os, json, subprocess
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
+import numpy as np
 
 if len(sys.argv) < 3:
     print(__doc__); sys.exit(2)
@@ -32,17 +33,31 @@ W_, H_ = _paths.frame(W)                            # إطار المقطع
 REG = (slice(450, 1150), slice(140, 940)) if H_ > W_ else (slice(int(H_*0.15), int(H_*0.70)), slice(int(W_*0.30), int(W_*0.70)))
 # لتقسيمات خاصة (شاشة مقسومة فوق/تحت): safe.json ← "colorRegion": [y0, y1, x0, x1] — منطقة وجهه بلا كابشن ولا رسم
 _sj = os.path.join(W, "safe.json")
-if os.path.exists(_sj) and "colorRegion" in _paths.read_json(_sj):
-    _r = _paths.read_json(_sj)["colorRegion"]; REG = (slice(_r[0], _r[1]), slice(_r[2], _r[3]))
+if os.path.exists(_sj) and "colorRegion" in json.load(open(_sj, encoding="utf-8-sig")):
+    _r = json.load(open(_sj, encoding="utf-8-sig"))["colorRegion"]; REG = (slice(_r[0], _r[1]), slice(_r[2], _r[3]))
 
+_probed = {}
 def probe(f):
-    o = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=color_range,color_space,color_primaries,color_transfer,width,height",
-                        "-of", "json", f], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
-    return json.loads(o)["streams"][0]
+    if f not in _probed:
+        o = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=color_range,color_space,color_primaries,color_transfer,width,height,pix_fmt",
+                            "-of", "json", f], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+        _probed[f] = json.loads(o)["streams"][0]
+    return _probed[f]
+
+def full_range(f):
+    p = probe(f); return p.get("color_range") == "pc" or str(p.get("pix_fmt", "")).startswith("yuvj")
 
 def planes(f, t):
-    cmd = ["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", f, "-frames:v", "1",
+    # ⛔ نقارن مثل بمثل: ملف بمدى كامل (pc، مثل cutz قديم من مصدر آيفون) تنقاس قنواته بعد تحويلها لـtv بنفس مصفوفته،
+    #    والمسلَّم tv دائماً. بدونها يطلع فرق المدى نفسه «تغيّر لون» (ΔY −2.0 · ΔU +0.5 · ΔV +0.5) ورندره سليم.
+    #    ملف tv: الأمر نفسه بالحرف مثل قبل.
+    vf = []
+    if full_range(f):
+        m = {"smpte170m": "bt601", "bt470bg": "bt601"}.get(probe(f).get("color_space"), "bt709")
+        vf = ["-vf", f"scale=in_range=pc:out_range=tv:in_color_matrix={m}:out_color_matrix={m}"
+                     ":flags=bicubic+accurate_rnd+full_chroma_int+full_chroma_inp"]
+    cmd = ["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", f, "-frames:v", "1", *vf,
            "-f", "rawvideo", "-pix_fmt", "yuv444p", "-"]
     b = np.frombuffer(subprocess.run(cmd, capture_output=True).stdout, np.uint8).astype(float)
     n = W_ * H_
@@ -68,7 +83,7 @@ dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=d
                             "-of", "csv=p=0", SRC], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout)
 sp = os.path.join(W, "stage.json")
 if os.path.exists(sp):
-    st = _paths.read_json(sp); st = st if isinstance(st, list) else st.get("stage", [])
+    st = json.load(open(sp, encoding="utf-8-sig")); st = st if isinstance(st, list) else st.get("stage", [])
     # ⛔ آخر نافذة بالجدول تنتهي عند 999 (حارس): بدون القصّ على المدة تطلع اللحظة بعد نهاية الملف فما يُقرأ شي
     # ⛔ الزوم يخدع القياس: هوك الزوم (أول ٤٫٦ ث) وانجراف النوافذ الأطول من ٨ ث (stage.ts vzoom) يزيحان الصورة
     #    فتطلع «ميل لوني» كاذب (قِيس: 2.5 بالهوك مقابل 0.0 بنافذة قصيرة). نقيس بالنوافذ القصيرة بعد الهوك أولاً.
@@ -87,6 +102,7 @@ fails = []
 ps, po = probe(SRC), probe(OUT)
 print(f"المصدر : {ps.get('color_space')} / {ps.get('color_range')}")
 print(f"المسلَّم: {po.get('color_space')} / {po.get('color_range')}")
+if full_range(SRC) or full_range(OUT): print("المدى الكامل (pc) تنقاس قنواته بعد تحويله لـtv — مثل بمثل")
 if po.get("color_space") != "bt709" or po.get("color_range") != "tv":
     fails.append("① المسلَّم بلا وسم bt709/tv — المشغّل يفكّه بمصفوفة غلط (ميل لوني). ارندر بـ --color-space bt709")
 

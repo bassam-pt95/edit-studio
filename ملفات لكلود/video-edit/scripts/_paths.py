@@ -40,7 +40,8 @@ def load(name, default):
     p = data(name)
     if not os.path.exists(p):
         return default
-    return read_json(p)
+    with open(p, encoding="utf-8-sig") as f:
+        return json.load(f)
 
 def read_json(p):
     """JSON بترميز utf-8 وبتحمّل BOM — PowerShell 5.1 (Set-Content -Encoding utf8) يكتب BOM فيطيح json.load العادي."""
@@ -112,14 +113,62 @@ EMPTY_LEDGER = {"videos": [], "mechs": {}, "rejected": [], "sounds": {}}
 # إطار المقطع: theme.json ← "frame": "tall" (طولي، الافتراضي) · "wide" (عرضي 16:9) · "square" (مربع)
 FRAMES = {"tall": (1080, 1920), "wide": (1920, 1080), "square": (1080, 1080)}
 
+_frame_warned = False   # تحذير theme.json مرة وحدة لكل تشغيل
+
 def frame(work):
     """(W, H) لإطار المقطع من <work>/theme.json."""
-    p = os.path.join(work, "theme.json")
-    name = "tall"
-    if os.path.exists(p):
-        try:
-            name = read_json(p).get("frame", "tall")
-        except Exception as e:
-            # ⛔ كان يرجع «طولي» بصمت فمشروع عريض ينفحص كأنه طولي ويطيح الرندر بعدين
-            print(f"⚠️ theme.json موجود وما انقرا ({e}) — اعتبرت الإطار طولي. صلّحه أو اكتبه ببايثون بدل PowerShell.", file=sys.stderr)
+    global _frame_warned
+    try:
+        with open(os.path.join(work, "theme.json"), encoding="utf-8-sig") as f:
+            name = json.load(f).get("frame", "tall")
+    except (FileNotFoundError, NotADirectoryError):   # ما فيه theme.json: طولي بصمت
+        name = "tall"
+    except Exception as e:   # موجود وما انقرا (مثل مسار ويندوز بشرطة خلفية وحدة: Invalid \escape): طولي، والتحذير على stderr لان 03_cut_zoom.py يقرا امر الكاشف من stdout
+        name = "tall"
+        if not _frame_warned:
+            _frame_warned = True
+            print(f"⚠️ theme.json ما انقرا ({e}) — اعتبرته طولي", file=sys.stderr)
     return FRAMES.get(name, FRAMES["tall"])
+
+def face_python():
+    """بايثون كاشف الوجه (personmask.py). ويندوز: MOHRER_FACE_PYTHON، والا بايثون venv ادوات المونتاج (00_setup.sh) لو موجود، والا بايثون هذا السكربت."""
+    if os.name == "nt":
+        venv = data("tools", "py", "Scripts", "python.exe")
+        return os.environ.get("MOHRER_FACE_PYTHON") or (venv if os.path.exists(venv) else sys.executable)
+    return sys.executable
+
+def safe_name(s, default="video"):
+    """اسم ملف من نص المستخدم. ويندوز: < > : " / \\ | ? * ورموز التحكم تصير -، بلا نقطة او مسافة بالاخر،
+    واسماء الاجهزة (CON PRN AUX NUL COM1-9 LPT1-9) يسبقها _ («؟» العربية مسموحة). غير ويندوز: الاسم نفسه."""
+    if os.name != "nt":
+        return s
+    import re
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", s).strip().rstrip(" .")
+    if re.fullmatch(r"CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]", s.split(".")[0].rstrip(" ").upper()):
+        s = "_" + s
+    return s or default
+
+class AudioReadError(Exception):
+    """ملف صوت ما انقرا (مو موجود · بلا صوت · ffmpeg ما فكّه): خطأ قراءة، مو «الصوت تغيّر»."""
+
+def read_audio(p):
+    """عيّنات ملف صوت float32 بشكل (عيّنات، قنوات)، بمعدله وقنواته كما هي، عبر ffmpeg لا wave:
+    ffmpeg يكتب أي wav فوق 16 بت (voice.wav حق 03_cut_zoom.py 24 بت) بصيغة WAVE_FORMAT_EXTENSIBLE (65534)،
+    وwave قبل بايثون 3.12 يرفضها («unknown format: 65534»). الأرقام نفس قراءة wave بالحرف: 16 بت ÷2^15 · 24 بت ÷2^23
+    (float32 يحفظ 24 بت بلا فقد). يرمي AudioReadError لو ما انقرا."""
+    import numpy as np
+    if not os.path.exists(p):
+        raise AudioReadError(f"{p}: الملف مو موجود")
+    pr = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", p],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        ch = int(pr.stdout.strip().split(",")[0])
+    except ValueError:
+        ch = 0
+    if ch < 1:
+        raise AudioReadError(f"{p}: ما فيه صوت ({(pr.stderr.strip().splitlines() or ['?'])[-1].replace(p + ': ', '')})")
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", p, "-map", "0:a:0", "-f", "f32le", "-c:a", "pcm_f32le", "-"], capture_output=True)
+    if r.returncode or not r.stdout:
+        raise AudioReadError(f"{p}: {(r.stderr.decode('utf-8', 'replace').strip().splitlines() or ['ffmpeg exit %d' % r.returncode])[-1]}")
+    x = np.frombuffer(r.stdout, dtype="<f4")
+    return x[:len(x) // ch * ch].reshape(-1, ch).astype(np.float32)

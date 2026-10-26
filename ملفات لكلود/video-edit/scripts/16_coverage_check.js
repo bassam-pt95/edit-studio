@@ -3,14 +3,13 @@
    ليش: اشتكى مرتين من مدى طويل بلا شي — «٢٣ ثانية وجه وكابشن بس».
    شلون: يجمع نوافذ كل دوال المشاهد (kN/jN) + مدَيات البي-رول من broll.json،
          ويطلّع أي فجوة أطول من الحد (١٢ ثانية افتراضياً).                        */
-const fs=require('fs'), path=require('path');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const fs=require('fs'), path=require('path'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep, LIM=Number(process.argv[3]||12);
 /* المحرّكان: الخفيف يقرأ compose.html، وريموشن يقرأ Scenes.tsx (كل مشهد: const A=…, B=…) — كان الفاحص خفيفاً فقط
    فطلع «ما فيه compose.html» على مشاريع ريموشن */
 const REM=fs.existsSync(W+'Scenes.tsx');   // ريموشن هو الافتراضي لو المشاهد موجودة (مجلد الشغل قد يحمل compose.html قديماً)
 const src=fs.readFileSync(W+(REM?'Scenes.tsx':'compose.html'),'utf8');
-const caps=readJson(W+'caps.json');
+const caps=readJSON(W+'caps.json');
 const DUR=caps.total;
 const win=[];
 if(REM){
@@ -22,9 +21,9 @@ if(REM){
 /* الصورة الخارجية (bleed) والكلام ورا الشخص يحسبان تغطية */
 const bk=src.match(/const BK_A=([\d.]+),\s*BK_B=([\d.]+)/); if(bk) win.push([+bk[1],+bk[2]]);
 if(fs.existsSync(W+'behind.json'))
-  readJson(W+'behind.json').lines.forEach(l=>win.push([l.s,l.e]));
+  readJSON(W+'behind.json').lines.forEach(l=>win.push([l.s,l.e]));
 if(fs.existsSync(W+'broll.json'))
-  readJson(W+'broll.json').ranges.forEach(r=>win.push([r[0],r[1]]));
+  readJSON(W+'broll.json').ranges.forEach(r=>win.push([r[0],r[1]]));
 win.sort((a,b)=>a[0]-b[0]);
 const merged=[];
 for(const w of win){

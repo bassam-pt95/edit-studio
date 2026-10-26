@@ -1,4 +1,4 @@
-import {continueRender, delayRender} from 'remotion';
+import {cancelRender, continueRender, delayRender} from 'remotion';
 import {T, FONT_LOCAL} from './theme';
 
 /* ⛔ القاعدة ١٤ — الوزن الغائب يخرّب الفيديو بصمت.
@@ -19,10 +19,26 @@ const warnIfMissing = () => {
     if (a === b) console.error('FONT_MISSING ' + T.font + ' — الخط مو متوفر، الكابشن بيطلع بخط النظام');
   } catch (e) { /* القياس اختياري */ }
 };
-/* الخط يتحمّل عند أول استعمال بس — نطلبه صراحة قبل القياس عشان ما يطلع تحذير كاذب */
-const finish = () => document.fonts.load(`700 80px "${T.font}"`, PROBE).catch(() => null)
-  .then(() => { warnIfMissing(); continueRender(h); });
 const W: [number,string][] = [[300,'Light'],[400,'Regular'],[500,'Medium'],[700,'Bold'],[900,'Black']];
+/* ويندوز (رندر 04b بس، REMOTION_FONT_STRICT): خط الكابشن ما تحمل = الرندر يوقف، بدل كابشن بخط بديل بصمت.
+   نقيس النص بالخط وبدونه: نفس العرض = المتصفح ما لقاه. بدون المتغير (الماك والاستوديو) نكمل كما كان. */
+const STRICT = !!((window as any).process?.env?.REMOTION_FONT_STRICT);
+const done = (): void => {
+  if (!STRICT) { continueRender(h); return; }
+  const f = `700 80px "${T.font}"`, s = 'سلام 123';
+  document.fonts.load(f, s).then(() => {
+    const c = document.createElement('canvas').getContext('2d')!;
+    c.font = `${f}, monospace`; const a = c.measureText(s).width;
+    c.font = '700 80px monospace';
+    if (a === c.measureText(s).width) throw new Error('fallback');
+    continueRender(h);
+  }).catch(() => cancelRender(new Error('⛔ الخط «' + T.font + '» ما تحمل: ' + (FONT_LOCAL
+    ? 'ثبته على الجهاز او شيل fontLocal من theme.json' : 'تاكد من النت ومن اسمه في Google Fonts'))));
+};
+/* الخط يتحمّل عند أول استعمال بس: نطلب كل وزن صراحة قبل أول فريم وقبل القياس. بعد fonts.ready كل الأوزان كانت
+   «unloaded» (مقاس على كروم بالماك)، ونسخة زياد لويندوز شافت أول فريم بكل تبويب ريموشن بخط بديل. */
+const finish = () => Promise.all(W.map(([w]) => document.fonts.load(`${w} 40px "${T.font}"`, PROBE + ' 123'))).catch(() => null)
+  .then(() => { warnIfMissing(); done(); });
 
 if (FONT_LOCAL) {
   const base = T.font.replace(/\s+/g,'');                       // الاسم بلا مسافات

@@ -17,37 +17,46 @@
   ⑤ الكسب بالقياس: ذروة الصوت +6 dB فوق RMS كلامه (الحادّة +5) — لا بالأذن
   ⛔ اقرأ قائمة المشطوبة بعد التشغيل: المازج يشيل حسب الأولوية لا حسب المعنى.
      شال مرة خط القلم تحت «تخفي الغلط» (قلب الجملة) وأبقى شطباً أقل أهمية — عدّل الأولوية بيدك."""
-import os, sys
+import json, wave, sys, os, unicodedata
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
+import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts'))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json, wave, numpy as np
+import _paths
 W=os.path.abspath(sys.argv[1])+'/'; SR=48000
 _paths.ensure()
 # مكتبة أصوات المستخدم (sounds/ بمجلد بياناته) + أصوات المقطع نفسه (<work>/sounds/) — الثانية تغلب لو تشابه الاسم
 BANKDIR=_paths.data('sounds')
 def rdw(p):
-    w=wave.open(p); b=w.readframes(w.getnframes()); ch=w.getnchannels(); sw=w.getsampwidth()
-    if sw==2: x=np.frombuffer(b,'<i2').astype(np.float32)/32768
-    else:
-        a=np.frombuffer(b,np.uint8).reshape(-1,3).astype(np.int32); v=a[:,0]|(a[:,1]<<8)|(a[:,2]<<16)
-        x=np.where(v>=1<<23,v-(1<<24),v).astype(np.float32)/8388608.0
-    return x.reshape(-1,ch)
+    # عبر ffmpeg لا wave (_paths.read_audio): voice.wav 24 بت (وأي صوت بالمكتبة فوق 16 بت) ينحفظ بصيغة 65534،
+    # وwave قبل بايثون 3.12 يرفضه («unknown format: 65534»). نفس العيّنات float32 بالحرف.
+    try: return _paths.read_audio(p)
+    except _paths.AudioReadError as e: sys.exit(f"⛔ ما قدرت أقرأ الصوت: {e}")
 voice=rdw(W+'voice.wav'); vdb=20*np.log10(np.sqrt((voice.mean(1)**2).mean())+1e-9)
-BANK={_paths.nfc(f[:-4]):rdw(os.path.join(BANKDIR,f)) for f in os.listdir(BANKDIR) if f.endswith('.wav')}   # NFC: أسماء ماك (NFD) ما تطابق أسماء الأحداث
-if os.path.isdir(W+'sounds'): BANK.update({_paths.nfc(f[:-4]):rdw(W+'sounds/'+f) for f in os.listdir(W+'sounds') if f.endswith('.wav')})
+BANK={f[:-4]:rdw(os.path.join(BANKDIR,f)) for f in os.listdir(BANKDIR) if f.endswith('.wav')}
+if os.path.isdir(W+'sounds'): BANK.update({f[:-4]:rdw(W+'sounds/'+f) for f in os.listdir(W+'sounds') if f.endswith('.wav')})
 if not BANK: sys.exit('⛔ مكتبة الأصوات فاضية — جهّزها بـstyles/collage/sound_add.py (من مكتبته أو من Mixkit/Pixabay)')
 BRIGHT={'tear','pencil','key1','key2','key3','pages','stamp_light','glass_break','scribble','crumple','page_turn','marker_a','marker_b','sand','pour'}
-EV=_paths.read_json(W+'sfx_events.json')
-EV=[[e[0],_paths.nfc(str(e[1]))]+list(e[2:]) for e in EV]   # NFC لأسماء الأصوات
+EV=json.load(open(W+'sfx_events.json',encoding='utf-8-sig'))
+# ويندوز: اسم بالاحداث ما يطابق ملفه حرفيا لان واحد منهم NFC والثاني NFD (ملف من ماك او zip منه):
+#   يلقى صوته بمقارنة NFC، والاسم المكتوب بـsfx_events.json يبقى نفسه بكل المخرجات (sfx.json · sfx_kept · sfx.lead)
+#   الماك يبقى مثل قبل: الاسم الحرفي بس
+if os.name=='nt':
+    NFC=lambda s:unicodedata.normalize('NFC',s); _NFC={NFC(k):k for k in BANK}
+    for e in EV:
+        if isinstance(e[1],str) and e[1] not in BANK and NFC(e[1]) in _NFC: BANK[e[1]]=BANK[_NFC[NFC(e[1])]]
+else:   # الماك (مثل الحالي): أسماء البنك والأحداث كلها NFC، فاسم ماك (NFD) يطابق اسم الحدث
+    BANK={_paths.nfc(k):v for k,v in BANK.items()}
+    EV=[[e[0],_paths.nfc(str(e[1]))]+list(e[2:]) for e in EV]   # NFC لأسماء الأصوات
 # ⑥ اللصق بالكلمة (حاكم 05b ①): كل حدث يلتصق بأقرب بداية كلمة داخل ±0.45 ث
-_caps=_paths.read_json(W+'caps.json'); _WD=sorted(w['s'] for c in _caps['cards'] for w in c['w'])
+_caps=json.load(open(W+'caps.json',encoding='utf-8-sig')); _WD=sorted(w['s'] for c in _caps['cards'] for w in c['w'])
 def _snap(t):
     b=min(_WD,key=lambda z:abs(z-t)); return round(b,3) if abs(b-t)<=0.45 else t
 EV=[([_snap(e[0])] if not str(e[1]).endswith('_bed') else [e[0]])+list(e[1:]) for e in EV]   # الفرشة ما تُلصق بكلمة
 bad=[e for e in EV if e[1] not in BANK]
 if bad: sys.exit(f"❌ أصوات مو بالبنك: {sorted(set(e[1] for e in bad))} · المتاح: {sorted(BANK)}")
 dur={k:len(v)/SR for k,v in BANK.items()}
-OPTS=_paths.read_json(W+'sfx_opts.json') if os.path.exists(W+'sfx_opts.json') else {}
+OPTS=json.load(open(W+'sfx_opts.json',encoding='utf-8-sig')) if os.path.exists(W+'sfx_opts.json') else {}
 GAIN=float(OPTS.get('gain_db',0.0)); REPOK=set(OPTS.get('repeat_ok',[]))
 MAXL={(round(e[0],3),e[1]):float(e[4]) for e in EV if len(e)>4 and e[4]}
 EGAIN={(round(e[0],3),e[1]):float(e[5]) for e in EV if len(e)>5 and e[5]}
@@ -90,13 +99,13 @@ with wave.open(W+'sfx_hits.wav','wb') as w:
     w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes((np.clip(hits,-1,1)*32767).astype('<i2').tobytes())
 with wave.open(W+'sfx.wav','wb') as w:
     w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes((np.clip(out,-1,1)*32767).astype('<i2').tobytes())
-sj=_paths.read_json(W+'sfx.json') if os.path.exists(W+'sfx.json') else {}
+sj=json.load(open(W+'sfx.json',encoding='utf-8-sig')) if os.path.exists(W+'sfx.json') else {}
 sj={k:v for k,v in sj.items() if not isinstance(v,list)}; sj.setdefault('outro',0)
 for t,n,_,_ in kept: sj.setdefault(n,[]).append(round(t,3))
 if beds: sj['_beds']={n:[round(t,3) for t,n2,_,_ in beds if n2==n] for _,n,_,_ in beds}
-_paths.write_json(W+'sfx.json',sj)
-_paths.write_json(W+'sfx.lead.json',{'leads':{k:0.0 for k in uses},'lib':sorted(uses)},indent=None)   # بنك منحوت بأذنه — معفى من ميزانية الطيف
-_paths.write_json(W+'sfx_kept.json',[[round(t,2),n,why] for t,n,_,why in kept])
+with open(W+'sfx.json','w',encoding='utf-8') as fh: json.dump(sj,fh,ensure_ascii=False,indent=1)
+with open(W+'sfx.lead.json','w',encoding='utf-8') as fh: json.dump({'leads':{k:0.0 for k in uses},'lib':sorted(uses)},fh,ensure_ascii=False)   # بنك منحوت بأذنه — معفى من ميزانية الطيف
+with open(W+'sfx_kept.json','w',encoding='utf-8') as fh: json.dump([[round(t,2),n,why] for t,n,_,why in kept],fh,ensure_ascii=False,indent=1)
 for t,n,why,r in sorted(dropped): print(f"  ✗ {t:7.2f} {n:<12} {r} — {why}")
 gaps=[kept[i+1][0]-kept[i][0] for i in range(len(kept)-1)] or [0]
 print(f"\n✅ {len(kept)} صوت · {len(kept)/(len(voice)/SR)*60:.1f}/دقيقة · أقرب صوتين {min(gaps):.2f} ث · ذروة {20*np.log10(np.abs(out).max()+1e-9):.1f} dBFS")

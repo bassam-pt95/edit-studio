@@ -1,3 +1,4 @@
+import React from 'react';
 import {staticFile, Img} from 'remotion';
 import {T, VEND, HAS_LOGO, VH, WIDE, BG_STYLE} from './theme';
 import {p, rgba, mix, lum} from './util';

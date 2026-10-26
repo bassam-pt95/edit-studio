@@ -7,8 +7,7 @@
 
    الاستعمال:  node scripts/12_face_guard.js <work> scan|check|broll
 */
-const path=require('path'), fs=require('fs'), cp=require('child_process');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const path=require('path'), fs=require('fs'), cp=require('child_process'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep, MODE=process.argv[3]||'scan';
 const TMP=W+'fg';
 /* الفريمات: المحرّك الخفيف عنده vfr/ كاملة (30 بالثانية). ريموشن ما يحتاجها، فنطلّع عيّنة 2 بالثانية من cutz.mp4
@@ -23,16 +22,21 @@ if(!fs.existsSync(VFR) || !fs.readdirSync(VFR).some(f=>f.endsWith('.jpg'))){
   }
 }
 let PM=null;   /* أمر كاشف الوجه: مكتبة أبل بالماك · mediapipe بغيره (_paths.personmask) */
-const M_TOP=0.14, M_BOT=0.06;   /* هامش أمان: فوق الرأس أكثر من تحت الذقن.
-   قص الشعر يبان فوراً، وقص الرقبة ما ينتبه له أحد — فنعطي الأعلى ضعف الأسفل. */
-
-function ensureBin(){
-  if(PM) return;
-  fs.mkdirSync(TMP,{recursive:true});
-  PM=require('./_paths').personmask(TMP);
-  if(!PM){ console.log('⚠️ ما قدرت أجهّز كاشف الوجه — بالماك يحتاج أدوات Xcode (xcode-select --install)'); process.exit(0); }
+const PYENV=process.platform==='win32'?{env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'},windowsHide:true}:{};   /* ويندوز: personmask.py بـUTF-8 لا بترميز النظام */
+const PM_HINT='⚠️ كاشف الوجه ناقص — جهزه ب bash scripts/00_setup.sh --install';   /* ويندوز: الكاشف في venv ادوات المونتاج */
+/* ويندوز: personmask.py يطلع بـ3 لو ادواته ناقصة، فنتخطى الفحص بهدوء مثل الماك بدل ما نطيح، ونمسح الفريمات الموقتة.
+   ويطلع بـ4 لو ما قرا ولا فريم: هذا مو «ما فيه وجه»، فنطلع بـ3 والفحص ما ينحسب ناجح.
+   --faces-only: هنا نقرا صناديق الوجه بس (meta.json)، فما نقص الشخص ولا نكتب اقنعته */
+function runPM(dir,outd){
+  try{ cp.execSync(PM+' '+JSON.stringify(dir)+' '+JSON.stringify(outd)+' fast 2 --faces-only',{stdio:'pipe',...PYENV}); }
+  catch(e){
+    fs.rmSync(dir,{recursive:true,force:true}); fs.rmSync(outd,{recursive:true,force:true});
+    if(e.status===3){ console.log(PM_HINT); console.log('تخطيت الفحص'); process.exit(0); }
+    if(e.status===4){ console.log('❌ ما قدرت اقرا الفريمات (مسار فيه حروف غير انجليزية؟)'); process.exit(3); }
+    console.error(String(e.stderr||'').trim().split(/\r?\n/).pop()||e.message); process.exit(1);
+  }
 }
-/* يشغّل كاشف الوجه على مجلد فريمات. ناقص mediapipe → نقول بوضوح ونخرج؛ أي خطأ آخر → خروج 1 برسالته؛
+/* الماك (وغير ويندوز): يشغّل كاشف الوجه على مجلد فريمات. ناقص mediapipe → نقول بوضوح ونخرج؛ أي خطأ آخر → خروج 1 برسالته؛
    وأقل من ٩٠٪ فريمات انقرت → خروج 3 (⛔ كان يرجع «ما لقيت وجهاً» وينجح بصمت لما OpenCV ما يقرا المسار العربي). */
 function runDetector(dir,outd,n){
   const K=require('./_paths'), r=K.runPersonmask(PM,dir,outd,'fast',2);
@@ -42,8 +46,18 @@ function runDetector(dir,outd,n){
     if(pr.kind==='missing'){ console.log('⚠️ '+pr.text+'\n   فحص الوجه ما انعمل — لا تعتبره سليماً.'); process.exit(0); }
     console.log('❌ '+pr.text); process.exit(1);
   }
-  let got=0; try{ got=readJson(outd+'/meta.json').length; }catch(e){}
+  let got=0; try{ got=readJSON(outd+'/meta.json').length; }catch(e){}
   if(got<n*0.9){ cleanup(); console.log('❌ كاشف الوجه قرأ '+got+' من '+n+' فريم — غالباً المسار فيه عربي أو مسافات. شغّل من مجلد اسمه لاتيني قصير'); process.exit(3); }
+}
+const M_TOP=0.14, M_BOT=0.06;   /* هامش أمان: فوق الرأس أكثر من تحت الذقن.
+   قص الشعر يبان فوراً، وقص الرقبة ما ينتبه له أحد — فنعطي الأعلى ضعف الأسفل. */
+
+function ensureBin(){
+  if(PM) return;
+  fs.mkdirSync(TMP,{recursive:true});
+  PM=require('./_paths').personmask(TMP);
+  if(!PM&&process.platform==='win32'){ console.log(PM_HINT); process.exit(0); }
+  if(!PM){ console.log('⚠️ ما قدرت أجهّز كاشف الوجه — بالماك يحتاج أدوات Xcode (xcode-select --install)'); process.exit(0); }
 }
 /* عيّنة فريمات موزّعة على الفيديو */
 function sample(n){
@@ -59,8 +73,9 @@ function detect(){
   fs.rmSync(dir,{recursive:true,force:true}); fs.mkdirSync(dir,{recursive:true});
   const files=sample(40);
   for(const f of files) fs.copyFileSync(VFR+'/'+f, dir+'/'+f);
+  if(process.platform==='win32') runPM(dir,outd); else
   runDetector(dir,outd,files.length);
-  const meta=readJson(outd+'/meta.json');
+  const meta=readJSON(outd+'/meta.json');
   const faces=[];
   for(const row of meta){
     const b=row.face;                       /* الصندوق متداخل تحت مفتاح face */
@@ -81,11 +96,13 @@ if (MODE === 'broll') {
   fs.rmSync(dir, {recursive:true, force:true}); fs.mkdirSync(dir, {recursive:true});
   const picked = [];
   for (let i = 0; i < all.length; i += STEP) { picked.push(all[i]); fs.copyFileSync(VFR+'/'+all[i], dir+'/'+all[i]); }
+  if (process.platform === 'win32') runPM(dir, outd); else
   runDetector(dir, outd, picked.length);
-  const meta = readJson(outd+'/meta.json');
+  const meta = readJSON(outd+'/meta.json');
   const byFile = {}; for (const r of meta) byFile[r.f] = r.face || null;
   /* الوجه "متحدث" إذا كان كبيراً وقريب من مركز الكادر أفقياً */
-  const isHead = b => b && b.h > 260 && Math.abs((b.x + b.w/2) - 540) < 300;
+  const CX = require('./_paths').frame(W)[0] / 2;   /* مركز الاطار: 540 بالطولي، 960 بالعرضي */
+  const isHead = b => b && b.h > 260 && Math.abs((b.x + b.w/2) - CX) < 300;
   const flags = picked.map(f => isHead(byFile[f]));
   const segs = []; let st = null;
   flags.forEach((ok, i) => {
@@ -120,7 +137,7 @@ function getRects(){
       .map(m=>({n:m[1],w:+m[4],h:+m[5]})).filter(r=>r.w>2&&r.h>2);
   }
   const R=require('./_paths').frame(W)[0]>require('./_paths').frame(W)[1] ? {CARD:{w:1280,h:720}, SIDE:{w:780,h:860}} : {CARD:{w:940,h:612}, SIDE:{w:470,h:835}};
-  if(fs.existsSync(W+'rects.json')) Object.assign(R, readJson(W+'rects.json'));
+  if(fs.existsSync(W+'rects.json')) Object.assign(R, readJSON(W+'rects.json'));
   return Object.entries(R).filter(([n,r])=>r.w>2&&r.h>2&&n!=='FULL'&&n!=='NONE'&&n!=='OUTRO').map(([n,r])=>({n,w:r.w,h:r.h}));
 }
 const [SW, SH] = require('./_paths').frame(W);   /* إطار المقطع: cutz.mp4 بنفس المقاس */
@@ -140,7 +157,7 @@ function bestAnchor(w,h){
   return best;
 }
 if(MODE==='scan'){
-  const tp=W+'theme.json', th=readJson(tp);
+  const tp=W+'theme.json', th=readJSON(tp);
   /* نضبط المرساة على أضيق نافذة مستعملة — تنفع الباقي تلقائياً */
   const rects=getRects();
   let worst=null;
@@ -158,14 +175,14 @@ if(MODE==='scan'){
   fs.writeFileSync(tp,JSON.stringify(th,null,1));
   console.log(`\n✅ faceAnchor=${worst.a} — الأحرج ${worst.r.n}: فوق ${Math.round(worst.top)} · تحت ${Math.round(worst.bot)}`);
   /* حدّ الرسم فوق رأسه بصيغة FULL (القاعدة ٨٢): أعلى وجهه ناقص 158 — يختلف حسب قربه من الكاميرا */
-  const sp=W+'safe.json', sj=fs.existsSync(sp)?readJson(sp):{};
+  const sp=W+'safe.json', sj=fs.existsSync(sp)?readJSON(sp):{};
   sj.fullFloor=Math.max(260, Math.round(TOP-158));
   fs.writeFileSync(sp,JSON.stringify(sj,null,1));
   console.log(`✅ حدّ الرسم فوق رأسه (fullFloor) = ${sj.fullFloor} → safe.json`);
   if(worst.top < worst.r.h*M_TOP)
     console.log(`⚠️ الهامش فوق الشعر أقل من ${Math.round(M_TOP*100)}٪ — صغّر ارتفاع ${worst.r.n} أو زد عرضها`);
 }else{
-  const th=readJson(W+'theme.json');
+  const th=readJSON(W+'theme.json');
   const a=typeof th.faceAnchor==='number'?th.faceAnchor:0.30;
   const rects=getRects();
   let bad=0;

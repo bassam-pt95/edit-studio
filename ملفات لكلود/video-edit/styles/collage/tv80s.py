@@ -1,10 +1,10 @@
 # معالجة «تلفزيون الثمانينات» للصور (الستايل أ المعتمد): تشبّع 0.62 · أسود مرفوع · دفء · انزياح ألوان 3 بكسل · نعومة خفيفة
 # python3 tv80s.py in out [--crop x0,y0,x1,y1] [--bw] [--w 1400] [--soft 0.6]
 # ⛔ لا يُطبَّق على فيديو المتحدث أبداً — الصور بس. والحبيبات وخطوط الشاشة تتحرّك بريموشن (مو محروقة بالصورة).
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts'))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import argparse, numpy as np
+import sys, os, argparse
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
+import numpy as np
 from PIL import Image, ImageFilter
 ap = argparse.ArgumentParser(); ap.add_argument('i'); ap.add_argument('o')
 ap.add_argument('--crop'); ap.add_argument('--bw', action='store_true'); ap.add_argument('--w', type=int, default=1400)

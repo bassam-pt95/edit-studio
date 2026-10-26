@@ -44,8 +44,8 @@ case "$cmd" in
     URL="$("$NODE" "$APP/studio/start.mjs" --url 2>/dev/null)"
     echo "version: $("$NODE" -e 'try{process.stdout.write(require(process.argv[1]).version)}catch{}' "$APP/manifest.json")"
     echo "running: ${URL:-no}"
-    echo "projects: $(wp "$PROJECTS")"
-    echo "data: $(wp "$DATA")" ;;
+    echo "projects: $(showpath "$PROJECTS")"
+    echo "data: $(showpath "$DATA")" ;;
   convert)
     need "${1:-}"; need "${2:-}"
     work="$1"; name="$2"; shift 2
@@ -63,6 +63,10 @@ case "$cmd" in
       *) conv "$work" --name "$name" --root "$PROJECTS" "$@" ;; esac
     exit $? ;;
   list)
+    # ويندوز: مجلد بيانات قديم (0.9.6، في المستندات) فيه مشاريع ما انتقلت (المجلد الجديد كان فيه مشاريع): نقول وينه
+    old_homes | while IFS= read -r o; do
+      has_projects "$o" && echo "! فيه مشاريع قديمة ما انتقلت للمجلد الجديد ($(showpath "$VEB"))، تلقاها في: $(showpath "$o")"
+    done
     exec "$NODE" "$T/old-work.mjs" "$VEB/projects" "$PROJECTS" ;;
   final)
     need "${1:-}"; need "${2:-}"
@@ -78,13 +82,16 @@ case "$cmd" in
     need "${1:-}"; exec "$NODE" "$T/notes.mjs" "$@" ;;
   reply)
     need "${1:-}"; need "${2:-}"; need "${3:-}"
-    wargs "$1" --reply "$2" "${@:3}"
-    if [ "$OS" = win ]; then MSYS2_ARG_CONV_EXCL='*' exec "$NODE" "$(wp "$T/notes.mjs")" "${WA[@]}"; fi
+    # ويندوز: Git Bash يحول اي وسيط يبدا بـ/ لمسار (رد «/ قصرت الجملة» كان يوصل «C:/Program Files/Git/ قصرت الجملة»).
+    # التحويل يوقف للامر كله (MSYS2_ARG_CONV_EXCL='*') والمساران يتحولون هنا بـcygpath
+    [ "$OS" = win ] && MSYS2_ARG_CONV_EXCL='*' exec "$NODE" "$(cygpath -m "$T/notes.mjs")" "$(cygpath -m "$1")" --reply "$2" "${@:3}"
     exec "$NODE" "$T/notes.mjs" "$1" --reply "$2" "${@:3}" ;;
   edit)
     need "${1:-}"; need "${2:-}"; exec "$NODE" "$T/edit.mjs" "$@" ;;
   export)
     need "${1:-}"; need "${2:-}"; run_bg
+    # ويندوز: لو CHROME فاضي، التصدير ياخذ متصفح نافذة الاستوديو نفسه (كروم، والا Edge)
+    if [ "$OS" = win ] && [ -z "${CHROME:-}" ] && b="$(app_browser_win)"; then export CHROME="$(cygpath -w "$b")"; fi
     exec "$NODE" "$T/export.mjs" "$@" ;;
   cuts)
     need "${1:-}"; need "${2:-}"; exec "$NODE" "$T/cutcheck.mjs" "$@" ;;

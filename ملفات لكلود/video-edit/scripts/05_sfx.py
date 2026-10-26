@@ -5,15 +5,15 @@ sfx.json = { "outro": 0, "<اسم الصوت>": [توقيتات...] }
 الأسماء المتاحة مطبوعة بآخر التشغيل. الأصوات الدلالية (خطوات، حديد، طيران…)
 تُربط بما يقوله المتحدث فعلاً، لا بأي انتقال.
 """
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import wave, numpy as np, json
+import wave, sys, os, json, unicodedata
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
+import numpy as np
 
 S = os.path.abspath(sys.argv[1]) + "/"
 SR = 48000
-_c = _paths.read_json(S + "caps.json")
-_s = _paths.read_json(S + "sfx.json")
+_c = json.load(open(S + "caps.json", encoding="utf-8-sig"))
+_s = json.load(open(S + "sfx.json", encoding="utf-8-sig"))
 DUR = _c["total"] + _s.get("outro", 0)
 n = int(DUR * SR) + SR
 buf = np.zeros(n)
@@ -355,7 +355,7 @@ def _lib(S_dir):
     out = {}
     for f in sorted(_g.glob(_os.path.join(S_dir, "lib", "*"))):
         if _os.path.splitext(f)[1].lower() in (".wav", ".mp3", ".aiff", ".m4a", ".aif"):
-            out[_paths.nfc(_os.path.splitext(_os.path.basename(f))[0])] = _load(f)   # NFC: أسماء ماك (NFD) ما تطابق مفاتيح sfx.json
+            out[_os.path.splitext(_os.path.basename(f))[0]] = _load(f)
     return out
 
 
@@ -476,17 +476,22 @@ for _k, _v in _lib(S).items():
     BANK[_k] = (_v, 0.240)   # ⛔ 0.170 خلّى نقرته +3.8 dB فقط فوق كلامه — النقرة تحتاج +6
     LIBSET.add(_k)
     print(f"   ↳ من مكتبته: {_k}")
+# ويندوز: اسم بـsfx.json ما يطابق اسم الصوت حرفيا لان واحد منهم NFC والثاني NFD (ملف من ماك او zip منه):
+#   يلقى صوته بمقارنة NFC، ويبقى مكتوب باسمه بـsfx.json بكل المخرجات (sfx_items · sfx.lead · sfx/<الاسم>.wav)
+#   الماك يبقى مثل قبل: الاسم الحرفي بس
+_NFC = {unicodedata.normalize("NFC", k): k for k in BANK}
+def _bk(k): return k if k in BANK else (_NFC.get(unicodedata.normalize("NFC", k)) if os.name == 'nt' else None)
 
 LEADS = {}          # كم قُدّم كل صوت — يقرأها 05b_sfx_audit فما يحسب التقديم خطأً
 used, unknown = [], []
 ITEMS = []          # للاستوديو: كل صوت بوقته (بعد التقديم) — sfx/<الاسم>.wav + sfx_items.json
 for key, times in _s.items():
-    key = _paths.nfc(key)
     if key == "outro" or not isinstance(times, list):
         continue
-    if key not in BANK:
+    if _bk(key) is None:
         unknown.append(key); continue
-    sig, g = BANK[key]
+    sig, g = BANK[_bk(key)]
+    if _bk(key) in LIBSET: LIBSET.add(key)   # 05b يقارن اسم sfx.json باسماء مكتبته
     for t0 in times:
         # ⛔ التوقيت المكتوب = لحظة الحركة على الشاشة. نقدّم الصوت بمقدار مهلته
         #    عشان تُسمع الذروة مع الحركة. بدونها الووش يتأخّر ١٨٤ م.ث ويحسّها المستخدم «مو متناغمة».
@@ -501,17 +506,17 @@ pcm = (buf * 32767).astype('<i2')
 st = np.repeat(pcm[:, None], 2, axis=1).ravel()
 w = wave.open(S + "sfx.wav", "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR)
 w.writeframes(st.tobytes()); w.close()
-_paths.write_json(S + "sfx.lead.json", {"leads": LEADS, "lib": sorted(LIBSET)})
+with open(S + "sfx.lead.json", "w", encoding="utf-8") as fh: json.dump({"leads": LEADS, "lib": sorted(LIBSET)}, fh, ensure_ascii=False, indent=1)
 
 # ── للاستوديو: كل صوت ملف لحاله بكسبه، عشان ينفتح بالاستوديو قطعة يحذفها أو يحرّكها
 os.makedirs(S + "sfx", exist_ok=True)
 for key in sorted({k for _, k in ITEMS}):
-    sig, g = BANK[key]
+    sig, g = BANK[_bk(key)]
     y = np.clip(sig * g, -0.95, 0.95)
     q = (y * 32767).astype('<i2')
     ww = wave.open(S + "sfx/" + key + ".wav", "wb"); ww.setnchannels(2); ww.setsampwidth(2); ww.setframerate(SR)
     ww.writeframes(np.repeat(q[:, None], 2, axis=1).ravel().tobytes()); ww.close()
-_paths.write_json(S + "sfx_items.json", ITEMS)
+with open(S + "sfx_items.json", "w", encoding="utf-8") as fh: json.dump(ITEMS, fh, ensure_ascii=False, indent=1)
 
 peak = float(np.max(np.abs(buf)))
 dbfs = 20 * np.log10(peak) if peak > 0 else -99

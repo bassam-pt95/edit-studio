@@ -2,14 +2,13 @@
 """يبني توقيتات الكابشن على التايم-لاين الجديد.  python3 02_captions.py <workdir>
 يقرأ: cut.json · a.json (وِسبر) · fixes.json  ← {"fix":[[كلمات الجملة 0],...], "hot":[كلمات تُظلَّل]}
 عدد كلمات كل جملة في fix لازم يساوي عدد كلمات وِسبر لنفس الجملة (عشان التوقيتات تبقى مضبوطة)."""
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json
+import json, sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 W=os.path.abspath(sys.argv[1])
-keep=_paths.read_json(os.path.join(W,"cut.json"))["keep"]
-tr=_paths.read_json(os.path.join(W,"a.json"))
-fx=_paths.read_json(os.path.join(W,"fixes.json"))
+keep=json.load(open(os.path.join(W,"cut.json"),encoding="utf-8-sig"))["keep"]
+tr=json.load(open(os.path.join(W,"a.json"),encoding="utf-8-sig"))
+fx=json.load(open(os.path.join(W,"fixes.json"),encoding="utf-8-sig"))
 FIX, HOT = fx["fix"], set(fx.get("hot",[]))
 
 def seg_of(t):
@@ -41,6 +40,6 @@ for i,seg in enumerate(tr["segments"]):
     cards.append({"s":round(cs,3),"e":round(ce,3),"w":o})
 for i in range(len(cards)-1):
     if cards[i]["e"]>cards[i+1]["s"]: cards[i]["e"]=round(cards[i+1]["s"]-0.02,3)
-_paths.write_json(os.path.join(W,"caps.json"),{"total":round(acc,3),"cards":cards})
+with open(os.path.join(W,"caps.json"),"w",encoding="utf-8") as fh: json.dump({"total":round(acc,3),"cards":cards},fh,ensure_ascii=False,indent=1)
 print("كروت:",len(cards)," المدة:",round(acc,2))
 for c in cards: print(f"{c['s']:6.2f}-{c['e']:6.2f}  "+" ".join(x['t'] for x in c['w']))

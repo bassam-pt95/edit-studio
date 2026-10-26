@@ -13,10 +13,11 @@
 يعدّل: cut.json (مقاطع الفيديو) · caps.json (الكابشن) · sfx.json (أوقات المؤثرات).
 بعده: أعد بناء الفيديو ← 03_cut_zoom.py ثم استخراج الفريمات ثم الرسم.
 """
-import os, sys
+import json, os, sys, shutil
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json, shutil
+import _paths   # write_json وshq تحت
 
 W = os.path.abspath(sys.argv[1])
 CMD = sys.argv[2] if len(sys.argv) > 2 else "show"
@@ -25,7 +26,7 @@ ARGS = [a for a in sys.argv[3:] if not a.startswith("--")]
 P = lambda n: os.path.join(W, n)
 PAD_L, PAD_R, MIN_SEG = 0.08, 0.12, 0.20
 
-def load(n): return _paths.read_json(P(n))
+def load(n): return json.load(open(P(n), encoding="utf-8-sig"))
 def save(n, d):
     if DRY: return
     if os.path.exists(P(n)):
@@ -109,7 +110,7 @@ elif CMD == "keep":
 elif CMD == "apply":
     if not os.path.exists(P("script.txt")): sys.exit("❌ ما فيه script.txt — شغّل show أول")
     alive = set()
-    for ln in open(P("script.txt"), encoding="utf-8-sig"):   # -sig: المفكرة قد تحفظه بـBOM
+    for ln in open(P("script.txt"), encoding="utf-8-sig"):
         ln = ln.strip()
         if not ln or ln.startswith("#"): continue
         head = ln.split(None, 1)[0]
@@ -198,7 +199,19 @@ if os.path.exists(P("sfx.json")):
     save("sfx.json", sfx)
     print(f"المؤثرات: {moved} انزاحت · {killed} انشالت")
 
-print(f"""
+if os.name == "nt":
+    # ويندوز: الاوامر تنلصق في Git Bash كما هي من اي مجلد: مسارات بين تنصيص وبشرطات امامية، ومجلد السكربتات كامل،
+    #   وvfr/ بنفس وصفة references/light-engine.md (الوانها اقرب للمصدر)
+    K = os.path.dirname(os.path.abspath(__file__)).replace("\\", "/"); Wf = W.replace("\\", "/")
+    print(f"""
+✅ تم. الحين اعد بناء الفيديو:
+   python3 "{K}/03_cut_zoom.py" "{Wf}"
+   mkdir -p "{Wf}/vfr" && ffmpeg -v error -i "{Wf}/cutz.mp4" -vf "fps=30,format=yuv444p,colorspace=all=bt709:space=bt470bg:range=pc:iall=bt709:irange=tv,format=yuvj444p" -q:v 2 -y "{Wf}/vfr/%05d.jpg"
+   node "{K}/04_render_frames.js" "{Wf}" all --force     (او bash "{K}/04b_remotion.sh" "{Wf}" render)
+⚠️ لو كنت مصمم مشاهد باوقات ثابتة — اوقاتها انزاحت، راجعها.
+↩️ للتراجع: python3 "{K}/10_script_edit.py" "{Wf}" undo""")
+else:
+    print(f"""
 ✅ تم. الحين أعد بناء الفيديو:
    python3 scripts/03_cut_zoom.py {_paths.shq(W)}
    mkdir -p {_paths.shq(W+"/vfr")} && ffmpeg -v error -i {_paths.shq(W+"/cutz.mp4")} -vf fps=30 -q:v 3 -y {_paths.shq(W+"/vfr/%05d.jpg")}

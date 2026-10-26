@@ -7,11 +7,10 @@
    شلون يشتغل: نقصّ جسم المتحدث بكل فريم (Vision بالماك · mediapipe بالويندوز)،
    نرسم الكلمة ممدودة بالكشيدة تحته، ثم نرجّع جسمه فوقها — فالكشيدة وحدها تمرّ ورا الراس
    والحروف تبقى بارزة على الجانبين.  يحتاج: ffmpeg + (ماك: أدوات Xcode · ويندوز: mediapipe). */
-const path=require('path'), fs=require('fs'), cp=require('child_process');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const path=require('path'), fs=require('fs'), cp=require('child_process'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep, MODE=process.argv[3]||'plan';
 const SC=path.dirname(path.resolve(process.argv[1]))+path.sep;
-const caps=readJson(W+'caps.json');
+const caps=readJSON(W+'caps.json');
 const FPS=30, MAXW=4, MINDUR=0.85;
 
 const words=c=>c.w.map(w=>w.t).join(' ');
@@ -45,8 +44,17 @@ if(!fs.existsSync(W+'vfr')){ console.log('❌ ما فيه مجلد vfr — اس�
 
 /* 1) بناء أداة القصّ مرة وحدة */
 let PM=null;
+const PYENV=process.platform==='win32'?{env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'},windowsHide:true}:{};   /* ويندوز: personmask.py بـUTF-8 لا بترميز النظام */
+const PM_HINT='❌ اداة القص ناقصة — جهزها ب bash scripts/00_setup.sh --install';   /* ويندوز: الاداة في venv ادوات المونتاج */
+/* ويندوز: personmask.py يطلع بـ3 لو ادواته ناقصة، فنطلع بـ4 مع التلميح (مثل لما الاداة ما تجهزت) بدل ما نطيح.
+   ويطلع بـ4 لو ما قرا ولا فريم (رسالته طلعت فوق)، فنطلع بـ4 مثله */
+function runPM(args){
+  try{ cp.execSync(PM+' '+args,{stdio:'inherit',...PYENV}); }
+  catch(e){ if(e.status===3){ console.log(PM_HINT); process.exit(4); } process.exit(e.status===4?4:1); }
+}
 fs.mkdirSync(W+'bt/src',{recursive:true}); fs.mkdirSync(W+'bt/mask',{recursive:true}); fs.mkdirSync(W+'bt/person',{recursive:true});
 PM=require('./_paths').personmask(W+'bt');
+if(!PM&&process.platform==='win32'){ console.log(PM_HINT); process.exit(4); }
 if(!PM){ console.log('❌ ما قدرت أجهّز أداة القصّ — بالماك تحتاج أدوات Xcode: xcode-select --install'); process.exit(4); }
 
 /* 2) الفريمات المطلوبة فقط (مو الفيديو كله) */
@@ -68,13 +76,35 @@ for(const [f0,f1] of ranges) for(let f=f0;f<=f1;f++){
 console.log('فريمات التأثير:',copied,'— أقصّ الشخص فيها…');
 
 /* 3) القصّ + بيانات الوجه */
-{
+if(process.platform==='win32') runPM(JSON.stringify(W+'bt/src')+' '+JSON.stringify(W+'bt/mask')+' accurate 2.5'); else {
+  /* الماك (وغير ويندوز): رسالة مفهومة لو الأداة ناقصة، وفحص ٩٠٪ من الأقنعة — مثل قبل */
   const K=require('./_paths'), r=K.runPersonmask(PM,W+'bt/src',W+'bt/mask','accurate',2.5);
   if(!r.ok){ console.log('❌ '+K.personmaskProblem(r).text); process.exit(r.status===3?4:1); }
   if(r.stdout) process.stdout.write(r.stdout);
   /* ⛔ أقنعة ناقصة = فريمات ما انقرت (مثلاً مسار عربي يقرأه OpenCV غلط): لا نكمّل ونطلّع «جاهز» وهو فاضي */
   const nm=fs.readdirSync(W+'bt/mask').filter(f=>f.endsWith('.png')).length;
   if(nm<copied*0.9){ console.log('❌ الأقنعة '+nm+' من '+copied+' فريم — القاصّ ما قرأ الفريمات. شغّل من مجلد اسمه لاتيني بلا مسافات'); process.exit(3); }
+}
+/* ويندوز: personmask.py يتخطى الفريم اللي ما قدر يقراه، فنتاكد ان لكل فريم قناعه قبل ffmpeg بدل ما يطيح على ملف ناقص */
+if(process.platform==='win32'){
+  let masks=0;
+  for(const [f0,f1] of ranges) for(let f=f0;f<=f1;f++){
+    const id=String(f).padStart(5,'0');
+    if(fs.existsSync(W+'bt/src/'+id+'.jpg')&&fs.existsSync(W+'bt/mask/'+id+'.png')) masks++;
+  }
+  if(masks<copied){ console.log(`❌ اقنعة الشخص ناقصة (${masks} من ${copied}) — فريمات ما انقرت`); process.exit(4); }
+  /* نموذج القص (matte.py) لو منزل: اقنعته بحواف الشعر تحل محل اقنعة mediapipe (وياخذها دليل لمكان الشخص)، والوجوه (meta.json) تبقى من personmask.
+     يكتب في bt/matte وننقلها بس لو طلع قناع لكل فريم، والا نكمل باقنعة mediapipe */
+  const MT=require('./_paths').matte();
+  if(MT){
+    fs.rmSync(W+'bt/matte',{recursive:true,force:true});
+    let ok=true;
+    try{ cp.execSync(MT+' '+JSON.stringify(W+'bt/src')+' '+JSON.stringify(W+'bt/matte')+' 2.5 '+JSON.stringify(W+'bt/mask'),{stdio:'inherit',...PYENV}); }catch(e){ ok=false; }
+    const ids=[];
+    for(const [f0,f1] of ranges) for(let f=f0;f<=f1;f++){ const id=String(f).padStart(5,'0'); if(fs.existsSync(W+'bt/src/'+id+'.jpg')) ids.push(id); }
+    if(ok&&ids.every(id=>fs.existsSync(W+'bt/matte/'+id+'.png'))) for(const id of ids) fs.renameSync(W+'bt/matte/'+id+'.png',W+'bt/mask/'+id+'.png');
+    else console.log('⚠️ قص النموذج ما كمل، نكمل باقنعة mediapipe');
+  }
 }
 
 /* 4) دمج القناع كشفافية → صورة الشخص وحده (كل مدى على حدة) */
@@ -86,9 +116,10 @@ for(const [f0,f1] of ranges){
     ' -start_number '+f0+' -y '+JSON.stringify(W+'bt/person/%05d.png'),{stdio:'pipe'});
 }
 
-const meta=readJson(W+'bt/mask/meta.json');
+const meta=readJSON(W+'bt/mask/meta.json');
 const faces={};
 for(const m of meta) if(m.face) faces[parseInt(m.f,10)]=m.face;
 fs.writeFileSync(W+'behind.json',JSON.stringify({lines,ranges,faces},null,1));
 console.log('✅ behind.json جاهز —',lines.length,'جملة يمرّ كلامها ورا الشخص.');
-console.log('   الحين ارسم: node scripts/04_render_frames.js "'+W.replace(/\\/g,'/').replace(/\/$/,'')+'" all --force');
+if(process.platform==='win32') console.log('   الحين ارسم: node "'+__dirname.replace(/\\/g,'/')+'/04_render_frames.js" "'+W.replace(/\\/g,'/').replace(/\/$/,'')+'" all --force');   /* ويندوز: ينلصق في Git Bash كما هو */
+else console.log('   الحين ارسم: node scripts/04_render_frames.js "'+W.replace(/\\/g,'/').replace(/\/$/,'')+'" all --force');   /* الماك: بـscripts/ ومقتبس (RN-15) */

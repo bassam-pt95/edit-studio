@@ -10,18 +10,17 @@
    FULL = الرسمة فوق وجهه بلا نافذة (قصيرة، داخل y 200…420)
    NONE! = قطع فوري (القاعدة ٢٣): الصورة تطلع مع كلمتها بلا انتقال وتروح بلا انتقال — للومضات وصور الضيوف
 المخرج: stage.json + whoosh_up/whoosh_down بـsfx.json مشتقّة من الجدول."""
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import re, io, json
+import re, io, json, sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 W = os.path.abspath(sys.argv[1]) + '/'
 PRE, POST = 0.20, 0.20      # النافذة تفتح قبل رسمتها بخُمس ثانية (وقت الانتقال) وتقفل بعدها مباشرة
 MERGE      = 1.2            # ⛔ لا ٢٫٠: مدّ النافذة عبر فجوة وجه قصيرة يصنع فراغاً — والفراغ أسوأ من رجوع الوجه
 SNAP       = 0.25           # حدود المشاهد تلتصق ببدايات الكلمات
-VEND       = _paths.read_json(W+'caps.json')['total']
+VEND       = json.load(open(W+'caps.json', encoding='utf-8-sig'))['total']
 
 s   = io.open(W+'Scenes.tsx', encoding='utf-8').read()
-FMT = _paths.read_json(W+'formats.json')
+FMT = json.load(open(W+'formats.json', encoding='utf-8-sig'))
 R = {}
 for m in re.finditer(r'const (\w+) = \(\{t[^\n]*\n(?:.*\n){0,6}?\s*const A=([\d.]+), B=([\d.]+);', s):
     R[m.group(1)] = (float(m.group(2)), float(m.group(3)))
@@ -49,7 +48,7 @@ for a,b,f,n in merged:
     ST.append({"s":a, "e":b, "m":f, **({"h":1} if n in HARD else {})}); cur = b
 ST.append({"s":cur, "e":999, "m":"FULL"})
 
-caps = _paths.read_json(W+'caps.json')
+caps = json.load(open(W+'caps.json', encoding='utf-8-sig'))
 WD = sorted(w['s'] for c in caps['cards'] for w in c['w'])
 for i,x in enumerate(ST):
     if i:
@@ -74,9 +73,9 @@ for a,b in zip(ST, ST[1:]): a['e'] = b['s']
 ST[-1]['e'] = 999
 ST = [dict(s=x['s'], e=x['e'], m=x['m'], **({'h':1} if x.get('h') else {})) for x in ST]
 for a,b in zip(ST, ST[1:]): assert abs(a['e']-b['s']) < 1e-6, (a,b)
-_paths.write_json(W+'stage.json', ST)
+with open(W+'stage.json','w',encoding='utf-8') as fh: json.dump(ST, fh, ensure_ascii=False, indent=1)
 
-sp = W+'sfx.json'; d = _paths.read_json(sp) if os.path.exists(sp) else {}
+sp = W+'sfx.json'; d = json.load(open(sp, encoding='utf-8-sig')) if os.path.exists(sp) else {}
 # الومضة بلا ووش — القطع الفوري صوته الدلالي (غالق · ضربة) لا انتقال
 d['whoosh_up']   = [b['s'] for a,b in zip(ST,ST[1:]) if b['m']!='FULL' and a['m']=='FULL' and not b.get('h')]
 d['whoosh_down'] = [b['s'] for a,b in zip(ST,ST[1:]) if b['m']=='FULL' and a['m']!='FULL' and b['s']<VEND-1 and not a.get('h')]
@@ -84,7 +83,7 @@ d['whoosh_down'] = [b['s'] for a,b in zip(ST,ST[1:]) if b['m']=='FULL' and a['m'
 _sem = [t for k in ('shutter','ding','thud','glass','type','reveal') for t in d.get(k,[])]
 for k in ('whoosh_up','whoosh_down'):
     d[k] = [t for t in d[k] if all(abs(t-x) > 0.45 for x in _sem)]
-_paths.write_json(sp, d)
+with open(sp,'w',encoding='utf-8') as fh: json.dump(d, fh, ensure_ascii=False, indent=1)
 
 tot = lambda m: sum(min(x['e'],VEND)-x['s'] for x in ST if x['m']==m)
 print("✅ stage.json —", len(ST), "مشهد")

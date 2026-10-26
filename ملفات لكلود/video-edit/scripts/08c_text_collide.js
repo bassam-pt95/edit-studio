@@ -1,8 +1,7 @@
 /* فاحص تداخل النصوص — يسجّل صندوق كل نص يُرسم ويبحث عن تقاطعات.
    الفاحصان الآخران يمسكان الرسم فوق الوجه وداخل الكابشن، وما يمسكان نصاً فوق نص.
    الاستعمال: node scripts/08c_text_collide.js <work> [خطوة] · يخرج بالرمز 3 لو فيه تداخل */
-const path=require('path'), fs=require('fs');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const path=require('path'), fs=require('fs'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep;
 const STEP=parseFloat(process.argv[3]||'0.3');
 require('./_paths').warnIfNotTall(W);
@@ -13,7 +12,7 @@ function resolvePuppeteer(){
       path.join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]){
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت أداة الرسم (puppeteer-core، للمحرّك الخفيف بس) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
+  throw new Error(require('./_paths').PUP_HINT);
 }
 const CHROME=require('./_paths').chromeOrExit();
 async function ensureFont(p,FF){
@@ -30,9 +29,9 @@ async function ensureFont(p,FF){
 }
 (async()=>{
   const puppeteer=resolvePuppeteer();
-  const caps=readJson(W+'caps.json');
-  const TH=readJson(W+'theme.json');
-  const SFX=fs.existsSync(W+'sfx.json')?readJson(W+'sfx.json'):{outro:0};
+  const caps=readJSON(W+'caps.json');
+  const TH=readJSON(W+'theme.json');
+  const SFX=fs.existsSync(W+'sfx.json')?readJSON(W+'sfx.json'):{outro:0};
   const dur=caps.total+(SFX.outro||0);
   const b=await puppeteer.launch({executablePath:CHROME,headless:'new',
     args:['--no-sandbox','--allow-file-access-from-files','--font-render-hinting=none']});

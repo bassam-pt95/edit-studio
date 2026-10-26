@@ -1,3 +1,4 @@
+import React from 'react';
 import {Composition} from 'remotion';
 import {Ad} from './Ad';
 import {DUR_F, FPS, VW, VH} from './theme';

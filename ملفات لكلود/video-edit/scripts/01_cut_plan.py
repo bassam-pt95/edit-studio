@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """خطة القص: يقيس السكتات بالصوت ويطلع مقاطع الكلام.  الاستخدام: python3 01_cut_plan.py <workdir>"""
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import subprocess, re, json
+import subprocess, re, json, sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 W = os.path.abspath(sys.argv[1]); SRC = os.path.join(W, "src.mov")
 NOISE, MIND, PAD, MERGE = "-32dB", 0.35, 0.13, 0.20
 
 dur = float(subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
     "-of","csv=p=0", SRC], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip())
-out = subprocess.run(["ffmpeg","-hide_banner","-nostats","-i",SRC,"-af",
+# the video is copied, not decoded (a 15 min 4K clip: 197 s → 1 s, the same silences); not -vn: an MPEG-TS source
+# whose audio starts late would shift every silence time (Ziyad's Windows port, 4ff1380)
+out = subprocess.run(["ffmpeg","-hide_banner","-nostats","-i",SRC,"-c:v","copy","-sn","-dn","-af",
     f"silencedetect=noise={NOISE}:d={MIND}","-f","null","-"], capture_output=True, text=True, encoding="utf-8", errors="replace").stderr
 
 sil=[]; s=None
@@ -32,6 +33,6 @@ for seg in keep:
     else: m.append(seg)
 m=[x for x in m if x[1]-x[0]>=0.30]
 tot=sum(b-a for a,b in m)
-_paths.write_json(os.path.join(W,"cut.json"), {"keep":m,"total":tot,"src_dur":dur})
+with open(os.path.join(W,"cut.json"),"w",encoding="utf-8") as fh: json.dump({"keep":m,"total":tot,"src_dur":dur}, fh, indent=1)
 print(f"مقاطع={len(m)}  الباقي={tot:.2f}s  انشال={dur-tot:.2f}s ({(dur-tot)/dur*100:.0f}%)")
 for a,b in m: print(f"  {a:7.2f} -> {b:7.2f}  ({b-a:5.2f}s)")

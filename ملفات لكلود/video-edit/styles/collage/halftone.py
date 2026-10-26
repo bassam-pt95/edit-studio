@@ -4,7 +4,10 @@
   python3 halftone.py sticker <src> <out.png>            ← للأجسام الداكنة على خلفية فاتحة (ظلّ طيارة)
 ⛔ لصور Pexels/Pixabay فقط — **صوره هو لا تُنزع ألوانها ولا تُقصّ أبداً**.
    النقش يمحي ألوان الشعارات (طيارة الإقلاع كانت بشعار شركة — اختفى)، لكن الشعار المقروء بالشكل يُستبعد."""
-import sys, numpy as np
+import sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
+import numpy as np
 from PIL import Image, ImageDraw, ImageOps, ImageFilter
 def halftone(src,out,cell=6,crop=None,ink=(26,24,22),paper=(236,230,219),maxw=1100):
     im=Image.open(src).convert('L')

@@ -1,5 +1,6 @@
 /* أدلّة المنطقة الآمنة — تظهر بالاستوديو بس لما تكون "guides": true بـproject.json.
    مناطق انستقرام اللي تغطي الشاشة، نفس أرقام 08_safe_check.js. */
+import React from 'react';
 import {WIDE, VW, VH} from './theme';
 /* العرضي (يوتيوب): شريط التشغيل تحت، وزوايا الأزرار فوق */
 export const ZONES = WIDE ? [

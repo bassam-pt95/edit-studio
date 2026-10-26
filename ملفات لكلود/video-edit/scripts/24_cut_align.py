@@ -7,16 +7,16 @@
 ② مفاتيح الكاميرا المتداخلة: [t, مدة, …] — لو المفتاح اللي بعده يبدأ قبل ما يخلص هذا، الانتقال يبدأ من هدف ما وصلناه = قفزة.
 ③ (تنبيه) انتقال سريع فوق خلفية دورية: لو ذروة السرعة قريبة من دورة الأشرطة (ورق green-bar دورته 168) تثبت الأشرطة وترمش.
    الحل المعتمد: مدة ≥ 0.85 ث + غباش حركة رأسي بقدر السرعة (feGaussianBlur stdDeviation="0 N" على الطبقة المتحركة)."""
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import re, subprocess, numpy as np
+import sys, os, re, subprocess
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
+import numpy as np
 W = os.path.abspath(sys.argv[1]); S = open(os.path.join(W, 'Scenes.tsx'), encoding='utf-8').read(); bad = 0
 src = os.path.join(W, 'cutz.mp4')
 if not os.path.exists(src):                      # بعد التسليم نمسح cutz — نسخته بمشروع ريموشن
     src = os.path.join(W, 'remotion', 'public', 'video.mp4')
 if not os.path.exists(src): sys.exit('❌ ما لقيت cutz.mp4 ولا remotion/public/video.mp4')
-fps = float(eval(subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', src], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()))
+fps = float(eval(subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', src], capture_output=True, text=True, encoding='utf-8', errors='replace').stdout.strip()))
 raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', src, '-vf', 'scale=180:320,format=gray', '-f', 'rawvideo', '-'], capture_output=True).stdout
 f = np.frombuffer(raw, np.uint8).reshape(-1, 320, 180).astype(np.float32)
 d = np.abs(np.diff(f, axis=0)).mean((1, 2)); med = float(np.median(d))

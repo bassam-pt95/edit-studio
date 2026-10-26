@@ -2,17 +2,19 @@
 """ملف ترجمة SRT + نص كامل من الكابشن.  python3 09_srt.py <workdir> [اسم_الأساس]
 يطلّع: <base>.srt (يوتيوب يقراه، وانستقرام يقبله بالرفع) و<base>.txt (نص جاهز لكابشن البوست).
 يقرأ caps.json — نفس التوقيتات اللي انرسمت بالفيديو، فالمزامنة مضمونة."""
-import os, sys
+import json, sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json
+import _paths
 
 W = os.path.abspath(sys.argv[1])
-_base0 = sys.argv[2] if len(sys.argv) > 2 else "ad-final"
-# ويندوز: ? : " < > | * ما تنفع بأسماء الملفات (NTFS يخفي الباقي بعد : كأنه stream) — ننظّف الاسم ونقول لو تغيّر
-base = _paths.sanitize_name(_base0)
-if base != _base0: print(f"⚠️ الاسم «{_base0}» ما ينفع اسم ملف — استُعمل «{base}»")
-caps = _paths.read_json(os.path.join(W, "caps.json"))
+base = sys.argv[2] if len(sys.argv) > 2 else "ad-final"
+if os.name != 'nt':   # الماك (وغير ويندوز): مثل قبل — : ? / وأخواتها تصير - (و/ تكسر المسار)، ونقول لو تغيّر الاسم. safe_name تحت ما تغيّر شي هنا
+    _base0 = base; base = _paths.sanitize_name(_base0)
+    if base != _base0: print(f"⚠️ الاسم «{_base0}» ما ينفع اسم ملف — استُعمل «{base}»")
+base = _paths.safe_name(base, "ad-final")   # ويندوز: «:» تخبي الملف بـstream مخفي و? * " < > | تطيحه، فتصير -
+caps = json.load(open(os.path.join(W, "caps.json"), encoding="utf-8-sig"))
 cards = caps["cards"]
 
 def ts(t):

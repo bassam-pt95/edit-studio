@@ -1,16 +1,16 @@
 {
   "name": "edit-studio",
   "owner": {
-    "name": "Edit Studio"
+    "name": "B Studio"
   },
   "metadata": {
-    "description": "استوديو المونتاج: ربط محادثة Claude بالاستوديو"
+    "description": "B Studio: ربط محادثة Claude بالاستوديو"
   },
   "plugins": [
     {
       "name": "edit-studio",
       "source": "./plugins/edit-studio",
-      "description": "يربط محادثة Claude باستوديو المونتاج: تعدّل مقطعك المفتوح بأدوات الاستوديو نفسها، فيظهر كل تعديل عندك فورًا وتتراجع عنه بـ Ctrl+Z (⌘Z على الماك). ولا تُكتب ملفات المشروع من خارج الاستوديو أبدًا."
+      "description": "يربط محادثة Claude بـB Studio: تعدّل مقطعك المفتوح بأدوات الاستوديو نفسها، فيظهر كل تعديل عندك فورًا وتتراجع عنه بـ Ctrl+Z (⌘Z على الماك). ولا تُكتب ملفات المشروع من خارج الاستوديو أبدًا."
     }
   ]
 }

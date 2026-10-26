@@ -4,8 +4,7 @@
      3) ما فيه رسم نازل تحت الحد الآمن.
    الاستعمال:  node scripts/08b_overlap_check.js <work> [خطوة_بالثواني]
    يخرج بالرمز 3 لو فيه خرق — فاستعمله شرطاً قبل التصدير. */
-const path=require('path'), fs=require('fs');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const path=require('path'), fs=require('fs'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep;
 const STEP=parseFloat(process.argv[3]||'0.25');
 require('./_paths').warnIfNotTall(W);
@@ -14,7 +13,7 @@ function resolvePuppeteer(){
       path.join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]){
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت أداة الرسم (puppeteer-core، للمحرّك الخفيف بس) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
+  throw new Error(require('./_paths').PUP_HINT);
 }
 const CHROME=require('./_paths').chromeOrExit();
 /* أخضر فاقع مكان الفيديو: أي بكسل أخضر = الفيديو، وأي شي غير الخلفية والأخضر = رسمك أنت */
@@ -45,10 +44,10 @@ async function ensureFont(p,FF){
 
 (async()=>{
   const puppeteer=resolvePuppeteer();
-  const caps=readJson(W+'caps.json');
-  const THEME=readJson(W+'theme.json');
-  const SFX=fs.existsSync(W+'sfx.json')?readJson(W+'sfx.json'):{outro:0};
-  const SAFE=fs.existsSync(W+'safe.json')?readJson(W+'safe.json'):{};
+  const caps=readJSON(W+'caps.json');
+  const THEME=readJSON(W+'theme.json');
+  const SFX=fs.existsSync(W+'sfx.json')?readJSON(W+'sfx.json'):{outro:0};
+  const SAFE=fs.existsSync(W+'safe.json')?readJSON(W+'safe.json'):{};
   const BOTTOM=SAFE.drawBottom||1500;     /* أقصى نقطة ينزل لها أي رسم */
   const PAD=SAFE.videoPad!==undefined?SAFE.videoPad:115;  /* هامش يستثني إطار كرت الفيديو وظلّه */
   const BGC=hx(THEME.bg||'#F3EFEA');

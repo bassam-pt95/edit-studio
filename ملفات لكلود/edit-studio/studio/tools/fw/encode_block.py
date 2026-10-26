@@ -6,11 +6,14 @@
 
 
 
+
+
 import json, math, os, re, subprocess, sys
 import numpy as np, cv2
 
 png_dir, out, fn, fd = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 crf0 = int(sys.argv[5]) if len(sys.argv) > 5 else 12
+WHOLE = len(sys.argv) > 6 and sys.argv[6] == 'whole'
 FR = f'{fn}/{fd}'
 files = sorted(((int(m.group(1)), os.path.join(png_dir, n)) for n in os.listdir(png_dir)
                 if (m := re.search(r'(\d+)\.png$', n))), key=lambda x: x[0])
@@ -26,7 +29,11 @@ def imread(p, flag):
 
 
 def load(p):
-    im = imread(p, cv2.IMREAD_UNCHANGED)
+    if os.name == 'nt':
+        b = np.fromfile(p, np.uint8)
+        im = cv2.imdecode(b, cv2.IMREAD_UNCHANGED) if b.size else None
+    else:
+        im = cv2.imread(p, cv2.IMREAD_UNCHANGED)
     if im is None: raise SystemExit(f'cannot read {p}')
     if im.ndim == 2: im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGRA)
     if im.shape[2] == 3: im = np.concatenate([im, np.full(im.shape[:2] + (1,), 255, np.uint8)], 2)
@@ -47,6 +54,7 @@ for f, p in files:
 if not any(visible):
     print(json.dumps({'empty': True, 'why': 'all frames transparent', 'min': files[0][0]})); sys.exit(0)
 i0 = visible.index(True); i1 = len(visible) - 1 - visible[::-1].index(True)
+if WHOLE: i0, i1 = 0, len(visible) - 1
 kept = files[i0:i1 + 1]
 if any(not v for v in visible[i0:i1 + 1]): opaque = False
 if opaque:

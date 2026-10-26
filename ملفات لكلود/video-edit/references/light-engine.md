@@ -1,12 +1,16 @@
 # المحرّك الخفيف (فريمات بالكانفس) — بديل لو ريموشن ما اشتغل على جهازه
 > ما يخص `compose.html` و`vfr/` و`04_render_frames.js`. يحتاج متصفح كروم وأداة الرسم — تنزل مرة وحدة لمجلد بياناته، وبموافقته:
-> `npm i --no-audit --no-fund --prefix "<مجلد البيانات>/tools" puppeteer-core` (السكربتات تطبع هذا السطر جاهزاً بمسار مجلده، بـ`/` على ويندوز). الفواحص 08/08b/08c/11 خفيفة.
+> `npm i --no-audit --no-fund --prefix "<مجلد البيانات>/tools" puppeteer-core` (السكربتات تطبع هذا السطر جاهزاً بمسار مجلده. ويندوز: او `bash scripts/00_setup.sh --light`، نفس التنزيل). الفواحص 08/08b/08c/11 خفيفة.
 > **المتصفح:** كروم، وعلى ويندوز إيدج بديل؛ أو حدّد مساره بـ`CHROME_PATH` (مثال PowerShell: `$env:CHROME_PATH='C:/Program Files/Google/Chrome/Application/chrome.exe'`).
 > **طولي فقط:** المحرّك الخفيف مقاسه 1080×1920 ثابت — عرضي أو مربع ← ريموشن (السكربتات تحذّر لو الإطار مو طولي).
 
 ### 9) الرسم النهائي والتجميع
 
 **الخفيف:**
+**ويندوز:** قبلها فريمات الفيديو `vfr/` استخرجها بهالامر بالضبط (وصفة القاعدة ٢٨ تنزل السطوع على ويندوز و`21_color_check` يطيح):
+```bash
+mkdir -p "<work>/vfr" && ffmpeg -v error -i "<work>/cutz.mp4" -vf "fps=30,format=yuv444p,colorspace=all=bt709:space=bt470bg:range=pc:iall=bt709:irange=tv,format=yuvj444p" -q:v 2 -y "<work>/vfr/%05d.jpg"
+```
 ```bash
 node scripts/04_render_frames.js <work> all          # يكمّل من وين وقف — ما يعيد فريماً جاهزاً
 bash scripts/06_encode.sh <work> <work>/ad-final.mp4

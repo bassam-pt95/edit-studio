@@ -1,51 +1,103 @@
 # -*- coding: utf-8 -*-
-"""قصّ «الموضوع» من صورة بغير الماك — نفس واجهة subjectcut.swift:
+"""قص «الموضوع» من صورة (شخص، جرة، اسد…) — نسخة ويندوز من subjectcut.swift (مكتبة Vision حق ابل مو بالويندوز).
 
-    python3 subjectcut.py <in> <out.png> [--keep]
+    python3 subjectcut.py <in> <out.png> [--keep] [--engine auto|model|plain]
 
-  --keep : بمقاس الصورة الأصلي وبنفس المكان (طبقة تتحرك فوق صورتها)
-  بدونه : PNG شفاف مقصوص على حدود الموضوع
-يطبع «ok WxH instances=N» مثل نسخة Swift، ويخرج 3 لو ما لقى موضوعاً، 2 لو الاستعمال غلط، 4 لو rembg غير مثبّت.
-
-يحتاج (اختياري، يُثبَّت يدوياً بموافقة المستخدم): pip install "rembg[cpu]" pillow
-أول تشغيل ينزّل نموذج u2net (~170 ميقا) مرة وحدة. الماك: الأحسن subjectcut.swift (Vision، بلا تنزيل).
-⛔ القص هنا من نموذج غير Vision: النتيجة تختلف شوي، راجع الصورة بعينك قبل ما تعتمدها (المرايا والزجاج بالذات).
+نفس مدخلات ومخرجات subjectcut.swift: PNG شفاف مقصوص على حدود الموضوع، و--keep بمقاس الصورة الاصلي وبنفس المكان.
+يطبع ok WxH instances=N، وبلا موضوع يطبع no subject ويطلع بـ3.
+  model : نموذج ISNet (<VEB_HOME>/tools/models/isnet-general-use.onnx) على onnxruntime حق venv ادوات المونتاج (المعالج).
+          ينزل بـbash scripts/00_setup.sh --subjectcut بعد موافقة المستخدم (~180 ميقا)
+  plain : بلا تنزيل، للصور المولدة بخلفية سادة فاتحة (رمادي فاتح او كريمي): الخلفية = لون اطار الصورة والمتصل
+          بالحواف بس، فالفاتح داخل الموضوع يبقى. خلفية مو سادة فاتحة (صورة حقيقية) تطلع بـ4
+  auto  : (الافتراضي) model لو النموذج موجود، والا plain
 """
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد التشغيل بـ-X utf8 (ماك/لينكس: لا شي)
+import sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 
+try:
+    import numpy as np
+    import cv2
+except ImportError:
+    print('⚠️ ناقص opencv او numpy — شغل bash scripts/00_setup.sh --install')
+    sys.exit(1)
 
-def crop_to_subject(img, threshold=8):
-    """يقص صورة RGBA على حدود البكسلات اللي ألفاها فوق العتبة. يرجّع None لو ما فيه شي."""
-    box = img.getchannel("A").point(lambda v: 255 if v > threshold else 0).getbbox()
-    return img.crop(box) if box else None
+import _paths
 
+ENGINES = ("auto", "model", "plain")
+MODEL = _paths.data("tools", "models", "isnet-general-use.onnx")
+HINT = "نزل نموذج قص الصور (bash scripts/00_setup.sh --subjectcut بعد موافقة المستخدم، ~180 ميقا) او اطلب الصورة بخلفية سادة فاتحة (رمادي فاتح او كريمي)"
 
-def main(argv):
-    if len(argv) < 3:
-        print("usage: subjectcut.py <in> <out.png> [--keep]")
-        return 2
-    keep = "--keep" in argv
+a, keep, engine = [], False, "auto"
+it = iter(sys.argv[1:])
+for x in it:
+    if x == "--keep": keep = True
+    elif x == "--engine": engine = next(it, "")
+    elif x.startswith("--engine="): engine = x.split("=", 1)[1]
+    else: a.append(x)
+if len(a) < 2 or engine not in ENGINES:
+    print(f"usage: subjectcut.py <in> <out.png> [--keep] [--engine {'|'.join(ENGINES)}]"); sys.exit(2)
+src, dst = a[0], a[1]
+
+# cv2.imread وimwrite بويندوز ما يفتحون مسار فيه حروف غير انجليزية، فنقرا ونكتب البايتات بنفسنا (مثل personmask.py)
+b = np.fromfile(src, np.uint8) if os.path.isfile(src) else np.zeros(0, np.uint8)
+img = cv2.imdecode(b, cv2.IMREAD_COLOR) if b.size else None
+if img is None:
+    print(f"ما انفتحت الصورة: {src}"); sys.exit(1)
+H, W = img.shape[:2]
+
+def plain():
+    """الخلفية السادة: لون شريط الاطار (2%) بفرق Lab، والقريب منه المتصل بالحواف بس خلفية، ثم تنظيف وتنعيم الحافة."""
+    lab = cv2.cvtColor(img.astype(np.float32) / 255, cv2.COLOR_BGR2LAB)
+    m = max(2, round(min(H, W) * 0.02))
+    band = np.ones((H, W), bool); band[m:-m, m:-m] = False
+    ref = np.median(lab[band], axis=0)
+    d = np.linalg.norm(lab - ref, axis=2)
+    spread = float(np.percentile(d[band], 60))   # 60%: موضوع يلمس حافة او حافتين ما يخرب القياس
+    if spread > 8 or ref[0] < 60:   # الغامق (مشهد مظلم) فروقه صغيرة وهو مو خلفية سادة
+        print("الخلفية مو سادة فاتحة: " + HINT); sys.exit(4)
+    _, lbl = cv2.connectedComponents((d < max(10, 3 * spread + 6)).astype(np.uint8), connectivity=4)
+    edge = np.unique(np.concatenate([lbl[0], lbl[-1], lbl[:, 0], lbl[:, -1]]))
+    fg = (~np.isin(lbl, edge[edge > 0])).astype(np.uint8) * 255
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5) if min(H, W) < 1500 else (9, 9))
+    fg = cv2.morphologyEx(cv2.morphologyEx(fg, cv2.MORPH_OPEN, k), cv2.MORPH_CLOSE, k)
+    return cv2.GaussianBlur(fg, (0, 0), 1.5)
+
+def model():
+    """ISNet بنفس تجهيز rembg (جلسة DIS): 1024x1024، القيم على اعلى قيمة بالصورة ناقص 0.5، والناتج min-max."""
     try:
-        from rembg import remove
-        from PIL import Image
+        import onnxruntime as ort
     except ImportError:
-        print('⛔ rembg غير مثبّت — اختياري لقص الخلفية بغير الماك: pip install "rembg[cpu]" pillow '
-              "(أول تشغيل ينزّل نموذجه ~170 ميقا)")
-        return 4
-    if not os.path.exists(os.path.expanduser(os.path.join("~", ".u2net", "u2net.onnx"))):
-        print("ℹ️ أول مرة: rembg ينزّل نموذجه u2net (~170 ميقا) — مرة وحدة بس", file=sys.stderr)
-    with Image.open(argv[1]) as im:
-        res = remove(im.convert("RGBA"))
-    out = res if keep else crop_to_subject(res)
-    if out is None:
-        print("no subject")
-        return 3
-    out.save(argv[2], "PNG")
-    print(f"ok {out.width}x{out.height} instances=1")
-    return 0
+        print("⚠️ ناقص onnxruntime — شغل bash scripts/00_setup.sh --install"); sys.exit(4)
+    sess = ort.InferenceSession(MODEL, providers=["CPUExecutionProvider"])
+    x = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), (1024, 1024),
+                   interpolation=cv2.INTER_AREA if W * H > 1024 * 1024 else cv2.INTER_LANCZOS4).astype(np.float32)
+    x = x / max(float(x.max()), 1e-6) - 0.5
+    p = sess.run(None, {sess.get_inputs()[0].name: x.transpose(2, 0, 1)[None]})[0][0, 0]
+    if p.max() < 0.5:   # ما فيه موضوع: min-max بعده يحول صورة سادة لتشويش
+        print("no subject"); sys.exit(3)
+    p = (p - p.min()) / max(float(p.max() - p.min()), 1e-6)
+    return cv2.resize((p * 255).astype(np.uint8), (W, H), interpolation=cv2.INTER_LANCZOS4)
 
+if engine == "auto":
+    engine = "model" if os.path.isfile(MODEL) else "plain"
+if engine == "model" and not os.path.isfile(MODEL):
+    print("نموذج قص الصور مو موجود: " + HINT); sys.exit(4)
+alpha = model() if engine == "model" else plain()
 
-if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+ys, xs = np.nonzero(alpha > 8)
+inst = 0
+if xs.size:
+    x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+    _, _, st, _ = cv2.connectedComponentsWithStats((alpha > 127).astype(np.uint8), connectivity=8)
+    inst = int(np.sum(st[1:, cv2.CC_STAT_AREA] >= 0.01 * (x1 - x0) * (y1 - y0)))
+if not inst:
+    print("no subject"); sys.exit(3)
+out = np.dstack([img, alpha])
+if not keep:
+    out = out[y0:y1, x0:x1]
+ok, enc = cv2.imencode(".png", out)
+if not ok:
+    print(f"ما انكتبت الصورة: {dst}"); sys.exit(1)
+enc.tofile(dst)
+print(f"ok {out.shape[1]}x{out.shape[0]} instances={inst}")

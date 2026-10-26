@@ -7,7 +7,9 @@
 mechanisms.json هو المصدر الوحيد للحقيقة. بعد كل تسليم: أضف الآليات الجديدة فيه
 (الرمز · الاسم · الدالة · «الشكل يقول ماذا») وأضف رموزها لقائمة المقطع، ثم شغّل هذا.
 """
-import os, sys
+import json, os, sys, collections
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
 import json, collections

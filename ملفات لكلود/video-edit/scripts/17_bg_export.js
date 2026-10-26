@@ -5,10 +5,10 @@ const path=require('path'), fs=require('fs');
 const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
 const OUT=path.resolve(process.argv[2]);
 const K=require('./_paths');
-const TH=readJson(process.argv[3]||K.data('profile.json'));
+const TH=K.readJSON(process.argv[3]||K.data('profile.json'));
 function pup(){ for(const p of ['puppeteer-core','puppeteer',path.join(K.HOME,'tools','node_modules','puppeteer-core')])
-  { try{ return require(p); }catch(e){} } throw new Error('ما لقيت puppeteer-core — ثبّتها مرة وحدة: '+K.puppeteerHint()); }
-const CHROME=require('./_paths').chromeOrExit();
+  { try{ return require(p); }catch(e){} } throw new Error(K.PUP_HINT); }
+const CHROME=require('./_paths').chrome();
 const SIZES=[[1080,1920,'ريلز-ستوري'],[1080,1350,'منشور-عمودي'],[1080,1080,'مربع'],
              [1920,1080,'أفقي'],[1280,720,'ثمنيل-يوتيوب']];
 const PHASES=[[0.0,'أ'],[3.4,'ب'],[7.1,'ج']];

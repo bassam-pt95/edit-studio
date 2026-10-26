@@ -8,21 +8,31 @@
 #   ⛔ ما نستخدم موسيقى — المقصود ملف صوتي (أصوات بشرية، أجواء، همهمة مكان).
 # • الصورة تُنسخ كما هي — لا إعادة ترميز ولا خسارة جودة.
 # متغيرات: BG · BG_GAIN (0.28) · LUFS (-14) · NO_LOUDNORM=1
+case "$OSTYPE" in msys*|cygwin*) [ "$(command -v find)" = /usr/bin/find ] || export PATH="$HOME/bin:/mingw64/bin:/usr/bin:$PATH";; esac   # ويندوز: bash بلا login يبدا PATH بـSystem32: find حق ويندوز (ولو ادوات Git بالـPATH تجي بعدها)، وما فيه ~/bin حق python3؛ فلو find مو /usr/bin/find نحط ~/bin وادوات Git اول مثل login
 set -e
-. "$(cd "$(dirname "$0")" && pwd)/_common.sh"; ve_set_python
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) export PYTHONUTF8=1 PYTHONIOENCODING=utf-8 ;; esac   # ويندوز: بايثون بـUTF-8 لا بترميز النظام
 W="$(cd "$1" && pwd)"; IN="$2"; OUT="${3:-${IN%.mp4}-master.mp4}"
 [ -f "$IN" ] || { echo "❌ ما لقيت $IN"; exit 2; }
-ve_free_out "$OUT"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) W="$(cygpath -m "$W")"; IN="$(cygpath -m "$IN")"; OUT="$(cygpath -m "$OUT")" ;; esac   # ويندوز: مسارات C:/ للادوات الاصلية، فتشتغل حتى مع MSYS_NO_PATHCONV=1 او MSYS2_ARG_CONV_EXCL='*'
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)   # ويندوز: ffmpeg -y ما يكتب فوق ملف مفتوح ببرنامج ما يسمح بالكتابة.
+  #   فتحه للاضافة بلا كتابة يكشفه بدون ما يغير الملف (حتى تاريخه).
+  if [ -e "$OUT" ] && ! { true >> "$OUT"; } 2>/dev/null; then
+    echo "⛔ الفيديو $(basename "$OUT") مفتوح ببرنامج ثاني (مشغل او معاينة المستكشف). سكره وعيد المحاولة"; exit 4; fi ;;
+esac
 G="${BG_GAIN:-${MUSIC_GAIN:-0.28}}"; I="${LUFS:--14}"
 DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
-FO=$($PY -c "print(max(0,round($DUR-1.4,3)))")
+FO=$(python3 -c "print(max(0,round($DUR-1.4,3)))")
 
 MUS="${BG:-$MUSIC}"
 if [ -z "$MUS" ]; then for n in bg-audio bg sound music; do for e in mp3 m4a wav aac; do
   [ -f "$W/$n.$e" ] && MUS="$W/$n.$e" && break 2; done; done; fi
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [ -z "$MUS" ] || MUS="$(cygpath -m "$MUS")" ;; esac   # ويندوز: BG من المستخدم مثل IN فوق
 
-MIX="$W/.master-mix.wav"; NRM="$W/.master-norm.wav"
-trap 'rm -f "$MIX" "$NRM" "$W/.loud.json"' EXIT   # لو وقف بنص الطريق ما يبقى بمجلد الشغل ملفات مؤقتة ثقيلة
+# الوسطاء بـC. ويندوز: النقطة ما تخبي الملف بالمستكشف، فتنحط بمجلد .cache مخفي (مثل 04b_remotion.sh)
+C="$W"; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) C="$W/.cache"; mkdir -p "$C"; attrib +h "$(cygpath -w "$C")" >/dev/null 2>&1 || true ;; esac
+MIX="$C/.master-mix.wav"; NRM="$C/.master-norm.wav"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) trap 'rm -f "$MIX" "$NRM" "$C/.loud.json"' EXIT ;; esac   # ويندوز: تشغيل فشل ما يخلي .master-*.wav بمجلد الشغل
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ;; *) trap 'rm -f "$MIX" "$NRM" "$C/.loud.json"' EXIT ;; esac   # الماك (C هو مجلد الشغل): لو وقف بنص الطريق ما يبقى بمجلد الشغل ملفات مؤقتة ثقيلة
 if [ -n "$MUS" ]; then
   echo "🔊 خلفية صوتية: $(basename "$MUS")  (مستوى $G · تنخفض وقت الكلام)"
   ffmpeg -v error -stats -i "$IN" -stream_loop -1 -i "$MUS" -filter_complex \
@@ -41,13 +51,13 @@ if [ "$NO_LOUDNORM" = "1" ]; then cp "$MIX" "$NRM"; echo "⏭  المعايرة 
 else
   echo "📏 قياس العلو…"
   M=$(ffmpeg -hide_banner -nostats -v info -i "$MIX" -af "loudnorm=I=$I:TP=-1.5:LRA=11:print_format=json" -f null - 2>&1 | \
-      $PY -c "import sys,json,re;s=sys.stdin.buffer.read().decode('utf-8','replace');m=re.findall(r'\{[^{}]*input_i[^{}]*\}',s,re.S);print(json.dumps(json.loads(m[-1])) if m else '')")
+      python3 -c "import sys,json,re;s=sys.stdin.buffer.read().decode('utf-8','replace');m=re.findall(r'\{[^{}]*input_i[^{}]*\}',s,re.S);print(json.dumps(json.loads(m[-1])) if m else '')")
   if [ -z "$M" ]; then echo "⚠️  ما قدرت أقيس — يمرّ كما هو بلا معايرة"; cp "$MIX" "$NRM";
   else
-    echo "$M" > "$W/.loud.json"
-    read -r II TP LRA GAIN HEAD < <(I="$I" $PY - "$W/.loud.json" <<'PYCALC'
+    echo "$M" > "$C/.loud.json"
+    read -r II TP LRA GAIN HEAD < <(I="$I" python3 - "$C/.loud.json" <<'PYCALC'
 import json,os,sys
-d=json.load(open(sys.argv[1],encoding='utf-8'))
+d=json.load(open(sys.argv[1], encoding="utf-8"))
 ii=float(d["input_i"]); tp=float(d["input_tp"]); tgt=float(os.environ["I"])
 g=tgt-ii
 print(ii, tp, d["input_lra"], round(g,2), round(-1.0-(tp+g),2))
@@ -58,13 +68,13 @@ PYCALC
     #    loudnorm حتى بـlinear=true ترجع normalization_type=dynamic وتقلّص المدى
     #    (قِسناها: 2.9 → 1.8 LU) والمستخدم يسمعها «صوتي يرتفع وينقص».
     #    المعايرة معناها رفع علو، لا تغيير ديناميكية.
-    if [ "$($PY -c "print(1 if $HEAD < 0 else 0)")" = "1" ]; then
+    if [ "$(python3 -c "print(1 if $HEAD < 0 else 0)")" = "1" ]; then
       echo "   ⚠️  الكسب ${GAIN}dB يتجاوز سقف الذروة — أخفضه بدل ما أضغط"
-      GAIN=$($PY -c "print(round($GAIN+$HEAD,2))")
+      GAIN=$(python3 -c "print(round($GAIN+$HEAD,2))")
     fi
     echo "   كسب ثابت ${GAIN} dB → $I LUFS · المدى الديناميكي كما هو"
     ffmpeg -v error -stats -i "$MIX" -af "volume=${GAIN}dB" -ar 48000 -y "$NRM"
-    rm -f "$W/.loud.json"
+    rm -f "$C/.loud.json"
   fi
 fi
 
@@ -72,5 +82,5 @@ ffmpeg -v error -stats -i "$IN" -i "$NRM" -map 0:v:0 -map 1:a:0 -c:v copy \
   -c:a aac -b:a 256k -ar 48000 -movflags +faststart -y "$OUT"
 rm -f "$MIX" "$NRM"
 echo "✅ $OUT"
-ffmpeg -hide_banner -nostats -v info -i "$OUT" -af "loudnorm=I=$I:TP=-1.5:print_format=summary" -f null - 2>&1 | grep -E "Input Integrated|Input True Peak" || true
+ffmpeg -hide_banner -nostats -v info -i "$OUT" -vn -af "loudnorm=I=$I:TP=-1.5:print_format=summary" -f null - 2>&1 | grep -E "Input Integrated|Input True Peak" || true
 ffprobe -v error -show_entries format=duration,size -of default=nw=1 "$OUT"

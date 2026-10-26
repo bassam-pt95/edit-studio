@@ -1,6 +1,6 @@
 #!/bin/bash
-# install.sh — يركّب «استوديو المونتاج» و«مهارة المونتاج» على هذا الجهاز (ماك، أو ويندوز من Git Bash): ينسخ المجلدين اللي جنبه إلى مهارات كلود (~/.claude/skills).
-#   كلود يشغّله لما يقول المستخدم «ركّب استوديو المونتاج» أو «حدّث الاستوديو»:   bash "<هذا المجلد>/install.sh"
+# install.sh — يركّب «B Studio» و«مهارة المونتاج» على هذا الجهاز (ماك، أو ويندوز من Git Bash): ينسخ المجلدين اللي جنبه إلى مهارات كلود (~/.claude/skills).
+#   كلود يشغّله لما يقول المستخدم «ركّب B Studio» أو «حدّث الاستوديو»:   bash "<هذا المجلد>/install.sh"
 #   ما ينزّل شي من النت وما يحذف شي: النسخة القديمة من أي وحدة منهم تروح لسلة المهملات (ويندوز: لمجلد «edit-studio-old» ببيت المستخدم).
 #   والدليل اللي جنب هالمجلد ينحط على سطح المكتب (القديم يروح مع النسخ القديمة).
 #   وبعد المهارتين يسجّل المكوّن الإضافي لمحادثات Claude Code (سوق edit-studio داخل مجلد المهارة)، ولو ما قدر يطبع الأمرين للمستخدم.
@@ -45,6 +45,67 @@ if [ "$WIN" = 0 ] && [ -d "$OLD_DATA" ] && [ ! -L "$OLD_DATA" ] && [ ! -e "$NEW_
   mv "$OLD_DATA" "$NEW_DATA" && ln -s "$NEW_DATA" "$OLD_DATA"   # mac-only: the first version was Mac only (WIN=0 above)
   echo "→ مشاريعك انتقلت للمجلد الجديد: $NEW_DATA"
 fi
+# ويندوز من 0.9.6: البيانات كانت في المستندات (Documents/video-edit)، ومن 1.0.0 ممكن تصير C:/EditStudio (اسم مستخدم بالعربي أو
+# المستندات في OneDrive: veb_default في _common.sh)، فمشاريعه القديمة اختفت من الاستوديو. القرار من _common.sh (old_homes وold_plan):
+# move: الجديد مو موجود، فالمجلد كله ينتقل. merge: الجديد موجود بلا مشاريع، فتنتقل المشاريع والمقاطع المعتمدة بس. keep: الجديد فيه مشاريع
+# فما نلمس شي (studio.sh list يقول وين القديم). قبلها نوقف الاستوديو القديم بأمره هو (start.mjs --stop) وما نوقف شي غيره.
+# نفس القرص: mv. قرص ثاني: نسخة نتأكد إنها كاملة، والقديم يروح لمجلد النسخ القديمة. ما ينحذف شي
+COMMON="$HERE/edit-studio/scripts/_common.sh"
+if [ "$WIN" = 1 ] && [ -f "$COMMON" ] && ! grep -q $'\r' "$COMMON"; then
+  drive_of(){ local w; w="$(cygpath -w "$1" 2>/dev/null || printf '%s' "$1")"; case "$w" in [A-Za-z]:*) printf '%s' "${w%%:*}" | tr '[:upper:]' '[:lower:]' ;; esac; }
+  winpath(){ cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
+  # نسخة تنحط باسم مؤقت وتتسمّى بعد ما تطلع مطابقة، فما يبقى نص مشروع باسمه الحقيقي
+  copy_in(){
+    if cp -R "$1" "$2.copying" 2>/dev/null && same "$1" "$2.copying" && mv "$2.copying" "$2"; then return 0; fi
+    [ -e "$2.copying" ] && mv "$2.copying" "$TRASH/$(basename "$2") نسخة ناقصة $STAMP" 2>/dev/null
+    return 1
+  }
+  PLANS="$(bash -c '. "$1" >/dev/null 2>&1; old_homes | while IFS= read -r o; do printf "%s|%s|%s\n" "$(old_plan "$o" "$VEB")" "$o" "$VEB"; done' _ "$COMMON" 2>/dev/null || true)"
+  while IFS='|' read -r what old new; do
+    case "$what" in move|merge) ;; *) continue ;; esac
+    ostart="$old/studio/app/studio/start.mjs"
+    if [ -f "$ostart" ] && command -v node >/dev/null 2>&1; then
+      STUDIO_DATA="$(cygpath -m "$old/studio" 2>/dev/null || printf '%s' "$old/studio")" node "$(cygpath -m "$ostart" 2>/dev/null || printf '%s' "$ostart")" --stop >/dev/null 2>&1 || true
+    fi
+    d1="$(drive_of "$old")"; one_drive=0
+    [ -n "$d1" ] && [ "$d1" = "$(drive_of "$new")" ] && one_drive=1
+    ok=1; done_line="→ مشاريعك القديمة انتقلت للمجلد الجديد: $(winpath "$new")"
+    if [ "$what" = move ]; then
+      mkdir -p "$(dirname "$new")" 2>/dev/null || true
+      if [ "$one_drive" = 1 ]; then mv "$old" "$new" 2>/dev/null || ok=0
+      elif copy_in "$old" "$new"; then
+        mv "$old" "$TRASH/video-edit قديم $STAMP" 2>/dev/null && done_line="$done_line، والمجلد القديم في $BIN"
+      else ok=0; fi
+      # إعدادات الاستوديو تحفظ مساراته كاملة (المشاريع، المعتمدة، التصوير): اللي تحت المجلد القديم تصير تحت الجديد
+      if [ "$ok" = 1 ] && [ -f "$new/studio/home/prefs.json" ] && command -v node >/dev/null 2>&1; then
+        node -e 'const fs=require("fs"),[f,o,n]=process.argv.slice(1),sl=(p)=>p.replace(/\\/g,"/").replace(/\/+$/,""),O=sl(o),N=sl(n);
+const fix=(v)=>{if(typeof v!=="string")return v;const s=sl(v),k=s.toLowerCase(),ok=O.toLowerCase();return k===ok||k.startsWith(ok+"/")?N+s.slice(O.length):v;};
+const walk=(x)=>Array.isArray(x)?x.map(walk):x&&typeof x==="object"?Object.fromEntries(Object.entries(x).map(([k,v])=>[k,walk(v)])):fix(x);
+const t=fs.readFileSync(f,"utf8").replace(/^\uFEFF/,"");fs.writeFileSync(f,JSON.stringify(walk(JSON.parse(t)),null,1)+"\n");' \
+          "$(cygpath -m "$new/studio/home/prefs.json" 2>/dev/null || printf '%s' "$new/studio/home/prefs.json")" \
+          "$(cygpath -m "$old" 2>/dev/null || printf '%s' "$old")" "$(cygpath -m "$new" 2>/dev/null || printf '%s' "$new")" >/dev/null 2>&1 || true
+      fi
+    else
+      for sub in studio/projects projects studio/approved; do
+        [ -d "$old/$sub" ] || continue
+        mkdir -p "$new/$sub" 2>/dev/null || true
+        for e in "$old/$sub"/*; do                  # المخفي (.mohrer) يبقى مكانه
+          [ -e "$e" ] || continue
+          t="$new/$sub/$(basename "$e")"
+          [ -e "$t" ] && continue
+          if [ "$one_drive" = 1 ]; then mv "$e" "$t" 2>/dev/null || ok=0
+          else copy_in "$e" "$t" || ok=0; fi
+        done
+      done
+      # قرص ثاني: المشاريع انتسخت، فالقديم كله لمجلد النسخ القديمة (نفس القرص: باقيه أدوات ونسخة الاستوديو القديمة، يبقى مكانه)
+      if [ "$ok" = 1 ] && [ "$one_drive" = 0 ]; then
+        mv "$old" "$TRASH/video-edit قديم $STAMP" 2>/dev/null && done_line="$done_line، والمجلد القديم في $BIN"
+      fi
+    fi
+    if [ "$ok" = 1 ]; then echo "$done_line"
+    else echo "! ما قدرت أنقل كل مشاريعك القديمة من $(winpath "$old"): سكّر الاستوديو وأي برنامج فاتح ملف منها، وأعد التركيب"; fi
+  done <<< "$PLANS"
+fi
 for old in bassam-studio video-editor-bassam; do
   if [ -e "$DEST/$old" ] || [ -L "$DEST/$old" ]; then
     chmod -R u+w "$DEST/$old" 2>/dev/null || true
@@ -59,7 +120,7 @@ fi
 
 for name in video-edit edit-studio; do
   src="$HERE/$name"; dst="$DEST/$name"
-  [ -f "$src/SKILL.md" ] || { echo "✗ $name ناقصة من الملف: نزّل «استوديو المونتاج» من جديد"; exit 1; }
+  [ -f "$src/SKILL.md" ] || { echo "✗ $name ناقصة من الملف: نزّل «B Studio» من جديد"; exit 1; }
   # git على ويندوز يحوّل نهايات الأسطر إلى CRLF عند النسخ (autocrlf)، فتنكسر السكربتات وبصمات الملفات
   if grep -rlI $'\r' "$src" --include='*.sh' >/dev/null 2>&1; then
     echo "✗ $name: ملفاتها نهايات أسطرها CRLF (git حوّلها عند النسخ). انسخ المستودع من جديد بـ: git clone -c core.autocrlf=false <الرابط> ، أو نزّل الملف المضغوط بدل النسخ"
@@ -78,15 +139,25 @@ for name in video-edit edit-studio; do
   echo "$done_msg"
 done
 # الدليل: ينحط على سطح المكتب، والقديم يروح مع النسخ القديمة (فكل تحديث يجي بدليله)
-GUIDE="$HERE/../دليل استوديو المونتاج.pdf"; DESK="$(desk_dir)"
+GUIDE="$HERE/../دليل B Studio.pdf"; DESK="$(desk_dir)"
 if [ -f "$GUIDE" ] && [ -d "$DESK" ]; then
-  G="$DESK/دليل استوديو المونتاج.pdf"
+  G="$DESK/دليل B Studio.pdf"
   if [ -f "$G" ] && cmp -s "$GUIDE" "$G"; then echo "= الدليل: نفسه اللي على سطح المكتب"
   else
-    gmsg="✓ الدليل: على سطح المكتب («دليل استوديو المونتاج»)"
-    if [ -e "$G" ]; then mv "$G" "$TRASH/دليل استوديو المونتاج قديم $STAMP.pdf"; gmsg="↺ الدليل: حدّثته على سطح المكتب (القديم في $BIN)"; fi
+    gmsg="✓ الدليل: على سطح المكتب («دليل B Studio»)"
+    if [ -e "$G" ]; then mv "$G" "$TRASH/دليل B Studio قديم $STAMP.pdf"; gmsg="↺ الدليل: حدّثته على سطح المكتب (القديم في $BIN)"; fi
     if cp "$GUIDE" "$G" 2>/dev/null; then echo "$gmsg"; else echo "! الدليل ما انحط على سطح المكتب، تلقاه بصفحة المستودع"; fi
   fi
+fi
+# الاسم القديم (قبل 1.0.3): «استوديو المونتاج» وتطبيقه «Edit Studio». الدليل القديم والتطبيق القديم يروحون مع النسخ القديمة،
+# والتطبيق الجديد «B Studio» ينسوّى بالتركيب (setup.sh)
+if [ -d "$DESK" ]; then
+  OG="$DESK/دليل استوديو المونتاج.pdf"
+  [ -f "$OG" ] && mv "$OG" "$TRASH/دليل استوديو المونتاج قديم $STAMP.pdf" && echo "↺ الدليل بالاسم القديم راح ل$BIN"
+  for oa in "$DESK/Edit Studio.app" "$DESK/Edit Studio.lnk"; do
+    [ -e "$oa" ] || continue
+    mv "$oa" "$TRASH/$(basename "$oa" | sed "s/^Edit Studio/Edit Studio قديم $STAMP/")" && echo "↺ تطبيق سطح المكتب بالاسم القديم راح ل$BIN (الجديد «B Studio» ينسوّى بالتركيب)"
+  done
 fi
 # المكوّن الإضافي لمحادثات Claude (plugin): داخل مجلد المهارة سوق صغير اسمه edit-studio فيه المكوّن edit-studio،
 # يخلّي أي محادثة من Claude Code تعدّل المقطع المفتوح بالاستوديو بأدواته. نسجّل السوق من المجلد اللي ركّبناه ونركّب المكوّن.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# montage.sh — مهارة المونتاج عند المستخدم مقارنةً بالنسخة اللي تجي مع الاستوديو (في ملف «استوديو المونتاج» نفسه، ويركّبها install.sh).
+# montage.sh — مهارة المونتاج عند المستخدم مقارنةً بالنسخة اللي تجي مع الاستوديو (في ملف «B Studio» نفسه، ويركّبها install.sh).
 #   الاستوديو ما يحمل نسخة منها (حد كلود: 200 ملف للمهارة)؛ يحمل بصمتها بس (montage-versions.json).
 #   bash montage.sh check <مجلد مهارة المونتاج>   يطبع ويخرج: same 0 (نفس اللي جت معه) · older 12 (أقدم)
 #                                                  · other 13 (نسخة غيرها: اتركها) · missing 14 (ما فيه SKILL.md)
@@ -11,8 +11,10 @@ INFO="$PKG_DIR/montage-versions.json"
 # desktop.ini وThumbs.db وehthumbs.db يكتبها Explorer فجأة في المجلد، فما تُحسب (SS-23)
 # shasum على الماك؛ على ويندوز (Git Bash) قد لا يوجد، وsha256sum يطبع نفس السطر
 if command -v shasum >/dev/null 2>&1; then SHA=(shasum -a 256); else SHA=(sha256sum); fi
+# desktop.ini وThumbs.db وehthumbs.db يكتبها Explorer على ويندوز من نفسه: ما تدخل في البصمة (ما توجد على الماك)
 print(){
-  (cd "$1" && find . \( -name __pycache__ -o -name node_modules \) -prune -o -type f ! -name .DS_Store ! -iname desktop.ini ! -iname Thumbs.db ! -iname ehthumbs.db ! -name '*.pyc' -print0 \
+  (cd "$1" && find . \( -name __pycache__ -o -name node_modules \) -prune -o -type f ! -name .DS_Store ! -name '*.pyc' \
+    ! -iname desktop.ini ! -iname Thumbs.db ! -iname ehthumbs.db -print0 \
     | LC_ALL=C sort -z | xargs -0 "${SHA[@]}" | /usr/bin/sed -E 's/^([0-9a-f]{64}) [ *]/\1  /' | "${SHA[@]}" | cut -c1-16)   # sha256sum على ويندوز يكتب «*» قبل الاسم
 }
 # البصمات من الملف: current ثم older (سطر لكل وحدة)

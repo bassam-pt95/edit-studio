@@ -1,4 +1,4 @@
-const o=`
+const t=`
 vec3 tetra(highp sampler3D lut, int n, vec3 c) {
   float s = float(n - 1);
   vec3 f = clamp(c, 0.0, 1.0) * s;
@@ -20,13 +20,13 @@ vec3 tetra(highp sampler3D lut, int n, vec3 c) {
   }
   return w0 * c000 + w1 * a + w2 * b + w3 * c111;
 }
-`,t=`
+`,u=`
 vec3 srgbEnc(vec3 x) {
   x = clamp(x, 0.0, 1.0);
   return mix(12.92 * x, 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), x));
 }
 vec3 apple709(vec3 v) { return srgbEnc(pow(clamp(v, 0.0, 1.0), vec3(1.961))); }
-`,u=`#version 300 es
+`,o=`#version 300 es
 in vec2 aPos;
 uniform mat3 uM;
 uniform vec2 uFrame;
@@ -193,7 +193,7 @@ uniform int uHasMatte;
 uniform vec2 uMatteTexel;
 out vec4 o;
 ${e}
-${o}
+${t}
 float matteAt(vec2 q) {
   vec2 d = uMatteTexel;
   float m = 4.0 * texture(uMatte, q).r
@@ -372,7 +372,7 @@ void main() {
   float d = sdRound(vPos - (uWin.xy + h), h, min(uRadius, min(h.x, h.y)));
   o = vec4(clamp(0.5 - d / uPx, 0.0, 1.0));
 }
-`,l=`#version 300 es
+`,f=`#version 300 es
 precision highp float;
 uniform sampler2D uSrc;
 uniform vec2 uDir;
@@ -394,7 +394,7 @@ void main() {
   }
   o = acc / wsum;
 }
-`,f=`#version 300 es
+`,l=`#version 300 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uMask;
@@ -409,7 +409,7 @@ void main() {
   float a = clamp(m * uAlpha, 0.0, 1.0);
   o = vec4(uColor * a, a);
 }
-`,s=`#version 300 es
+`,m=`#version 300 es
 precision highp float;
 in vec2 vPos;
 uniform sampler2D uSrc;
@@ -421,7 +421,7 @@ void main() {
   vec4 c = texture(uSrc, vec2(vPos.x / uFrame.x, 1.0 - vPos.y / uFrame.y));
   o = vec4(c.rgb * uBright, c.a) * uAlpha;
 }
-`,m=`#version 300 es
+`,s=`#version 300 es
 precision highp float;
 in vec2 vUV;
 uniform sampler2D uSrc;
@@ -439,7 +439,7 @@ uniform sampler2D uSrc;
 uniform int uDisplay;
 uniform int uQuant;
 out vec4 o;
-${t}
+${u}
 void main() {
   vec4 c = texture(uSrc, vec2(vUV.x, 1.0 - vUV.y));
   vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
@@ -477,4 +477,88 @@ void main() {
   ivec2 p = clamp(uBase + ivec2(gl_FragCoord.xy), ivec2(0), uMax);
   o = texelFetch(uTex, p, 0);
 }
-`;export{r as FS_BG,l as FS_BLUR,s as FS_EDGES,d as FS_FETCH,x as FS_FINAL,a as FS_LIGHT,n as FS_OVERLAY,m as FS_REGION,v as FS_RRECT,f as FS_TINT,p as FS_UNPACK16,h as FS_UNPACK48,c as FS_VIDEO,t as GLSL_APPLE709,e as GLSL_LIGHT,o as GLSL_TETRA,u as VS,i as VS_FULL};
+`,g=`#version 300 es
+precision highp float;
+in vec2 vPos;
+uniform sampler2D uA;
+uniform sampler2D uB;
+uniform vec2 uFrame;
+uniform int uKind;
+uniform float uU;
+uniform vec3 uColor;
+uniform vec2 uOffA;
+uniform vec2 uOffB;
+uniform int uAxis;
+uniform float uEdge;
+uniform float uFrom;
+out vec4 o;
+vec4 at(sampler2D t, vec2 p) { return texture(t, vec2(p.x / uFrame.x, 1.0 - p.y / uFrame.y)); }
+bool inside(vec2 p) { return p.x >= 0.0 && p.y >= 0.0 && p.x < uFrame.x && p.y < uFrame.y; }
+void main() {
+  vec2 p = vPos;
+  if (uKind == 0) { o = mix(at(uA, p), at(uB, p), uU); return; }
+  if (uKind == 1) {
+    vec4 c = vec4(uColor, 1.0);
+    o = uU < 0.5 ? mix(at(uA, p), c, 2.0 * uU) : mix(c, at(uB, p), 2.0 * uU - 1.0);
+    return;
+  }
+  if (uKind == 2 || uKind == 3) {
+    vec2 q = p - uOffB;
+    if (inside(q)) { o = at(uB, q); return; }
+    o = at(uA, uKind == 3 ? p - uOffA : p);
+    return;
+  }
+  float c = uAxis == 0 ? p.x : p.y;
+  bool b = uFrom < 0.0 ? c < uEdge : c >= uEdge;
+  o = b ? at(uB, p) : at(uA, p);
+}
+`,b=`#version 300 es
+precision highp float;
+precision highp int;
+precision highp isampler2D;
+uniform sampler2D uSrc;
+uniform isampler2D uFilt;
+uniform int uW;
+uniform int uH;
+uniform int uTW;
+uniform int uSize;
+uniform ivec3 uY;
+uniform ivec3 uU;
+uniform ivec3 uV;
+out vec4 o;
+ivec3 px(int x, int y) { return ivec3(round(texelFetch(uSrc, ivec2(x, y), 0).rgb * 255.0)); }
+int luma(int b) {
+  ivec3 c = px(b % uW, b / uW);
+  int y14 = (c.r * uY.x + c.g * uY.y + c.b * uY.z + (1 << 19) + (1 << 8)) >> 9;
+  return clamp((min(y14 * 2, 32767) + 64) >> 7, 0, 255);
+}
+int chroma(int k, ivec3 m) {
+  int cw = uW >> 1;
+  int cx = k % cw, cy = k / cw;
+  int p0 = texelFetch(uFilt, ivec2(0, cy), 0).r;
+  int s = 64 << 12;
+  for (int j = 0; j < 64; j++) {
+    if (j >= uSize) break;
+    int f = texelFetch(uFilt, ivec2(1 + j, cy), 0).r;
+    if (f == 0) continue;
+    ivec3 a = px(2 * cx, p0 + j) + px(2 * cx + 1, p0 + j);
+    int u = (a.r * m.x + a.g * m.y + a.b * m.z + (1 << 23) + (1 << 9)) >> 10;
+    s += min((u & 0xffff) * 2, 32767) * f;
+  }
+  return clamp(s >> 19, 0, 255);
+}
+int byteAt(int b) {
+  int n = uW * uH;
+  if (b < n) return luma(b);
+  b -= n;
+  int m = (uW >> 1) * (uH >> 1);
+  if (b < m) return chroma(b, uU);
+  b -= m;
+  if (b < m) return chroma(b, uV);
+  return 0;
+}
+void main() {
+  int t = (int(gl_FragCoord.y) * uTW + int(gl_FragCoord.x)) * 4;
+  o = vec4(float(byteAt(t)), float(byteAt(t + 1)), float(byteAt(t + 2)), float(byteAt(t + 3))) / 255.0;
+}
+`;export{r as FS_BG,f as FS_BLUR,m as FS_EDGES,d as FS_FETCH,x as FS_FINAL,b as FS_I420,a as FS_LIGHT,n as FS_OVERLAY,s as FS_REGION,v as FS_RRECT,l as FS_TINT,g as FS_TRANS,p as FS_UNPACK16,h as FS_UNPACK48,c as FS_VIDEO,u as GLSL_APPLE709,e as GLSL_LIGHT,t as GLSL_TETRA,o as VS,i as VS_FULL};

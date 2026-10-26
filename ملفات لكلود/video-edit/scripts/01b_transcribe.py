@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""01b_transcribe.py <work> [--model large-v3|large-v3-turbo|medium] [--lang ar]
+"""01b_transcribe.py <work> [--model large-v3|large-v3-turbo|medium] [--lang ar] [--batched]
 
 التفريغ بتوقيت الكلمة — يكتب <work>/a.json بنفس صيغة وِسبر (segments[].words[].start/end)
 فيقرأه 02_captions.py و10_script_edit.py بلا تغيير.
@@ -8,22 +8,25 @@
 المحرّك حسب الجهاز:
   • ماك بمعالج أبل (M1 وأحدث): mlx-whisper على معالج الرسوميات — أسرع بمرات.
   • ويندوز أو ماك إنتل: faster-whisper (كرت NVIDIA لو موجود، وإلا المعالج).
-    بلا كرت NVIDIA على ويندوز/لينكس: الافتراضي large-v3-turbo بـint8 (وlarge-v3 يبقى بـ--model large-v3)، والسكربت يقول الوقت التقريبي ويمنع نوم الجهاز.
 النموذج large-v3 هو الأدق للعربي. medium أسرع وأغلاطه أكثر بوضوح (قِسناها: ~20٪ أغلاط زيادة بالعامية).
 ⛔ البرومت باللهجة (initial_prompt) ما نفع بالتجربة. الحل: large-v3 + dialect.json + تصحيحك بـfixes.json.
 ⛔ large-v3 «يفصّح» العامية أحياناً («اللي الناس كانوا»→«التي كان الناس»). لو عندك سكربت المتحدث،
    قارن التفريغ به جملة جملة وصحّح لكلامه هو، لا للفصحى.
+--batched (faster-whisper على كرت NVIDIA): يقسم الكلام عند السكتات لقطع لين 6 ثواني ويفرغها دفعات مع بعض، اسرع
+   بمرات بالكلام الطويل، بس مسودة: كل قطعة بلا سياق اللي قبلها، فبعض الكلمات وحدود الجمل تختلف عن العادي.
+   VEB_STT_BATCH حجم الدفعة (الافتراضي 8، اقل لو ذاكرة الكرت ما تكفي).
 """
-import os, sys
+import sys, os, json, time, subprocess, platform
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json, time, subprocess, platform, wave, atexit
+import _paths
 
 if len(sys.argv) < 2: print(__doc__); sys.exit(2)
 W = os.path.abspath(sys.argv[1]) + "/"
-MODEL_GIVEN = "--model" in sys.argv
-MODEL = sys.argv[sys.argv.index("--model") + 1] if MODEL_GIVEN else "large-v3"
+MODEL = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else "large-v3"
 LANG = sys.argv[sys.argv.index("--lang") + 1] if "--lang" in sys.argv else "ar"
+BATCHED = "--batched" in sys.argv
 
 src = W + "src.mov"
 if not os.path.exists(W + "a.wav"):
@@ -40,45 +43,42 @@ if APPLE:
     REPO = {"large-v3": "mlx-community/whisper-large-v3-mlx",
             "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
             "medium": "mlx-community/whisper-medium-mlx"}[MODEL]
+    if BATCHED: print("--batched لـfaster-whisper بس: mlx-whisper يفرغ بالطريقة العادية", flush=True)
     r = mlx_whisper.transcribe(W + "a.wav", path_or_hf_repo=REPO, language=LANG, word_timestamps=True)
 else:
-    if sys.platform == "win32":   # أول تنزيل للنموذج بدون Developer Mode يطبع تحذير symlinks طويل (طبيعي، بس يخوّف)
-        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    # ويندوز بلا Developer Mode: اول تنزيل للنموذج يطبع تحذير symlinks طويل بالانجليزي. huggingface_hub يقرا المتغير وقت الاستيراد
+    if os.name == "nt": os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     try:
         from faster_whisper import WhisperModel
     except ImportError:
         sys.exit("⛔ faster-whisper غير مثبّت — شغّل scripts/00_setup.sh --install")
-    try:
-        import ctranslate2
-        CUDA = ctranslate2.get_cuda_device_count()
-    except Exception:
-        CUDA = 0
-    # بلا كرت NVIDIA (ويندوز/لينكس): large-v3 على المعالج أبطأ من مدة المقطع نفسه (قِيس: 41 ث كلام = 68 ث، RTF 1.66 على 16 نواة).
-    # الافتراضي هناك large-v3-turbo بـint8 (مفكّك أخف بكثير)، ونقول الوقت الحقيقي بدل «٣ دقايق»، ونمنع النوم. الماك وكرت NVIDIA: بلا تغيير.
-    CPU_BOX = CUDA == 0 and platform.system() != "Darwin"
-    if CPU_BOX:
-        if not MODEL_GIVEN:
-            MODEL = "large-v3-turbo"
-        try:
-            with wave.open(W + "a.wav") as _w: _dur = _w.getnframes() / _w.getframerate()
-        except Exception:
-            _dur = 0.0
-        _rtf = {"large-v3": 1.7, "large-v3-turbo": 0.6, "medium": 0.9}.get(MODEL, 1.0)
-        print(f"⚠️ ما فيه كرت NVIDIA — التفريغ على المعالج ({os.cpu_count()} نواة) بنموذج {MODEL} int8."
-              + (f" المقطع {_dur/60:.1f} دقيقة، الوقت التقريبي ~{max(1, round(_dur*_rtf/60))} دقيقة" if _dur else "")
-              + " (تقدير مقيس على معالج 16 نواة — جهازك يختلف). لا تقفل الجهاز.", flush=True)
-        _paths.keep_awake(True)
-        atexit.register(_paths.keep_awake, False)
-        try:
-            fw = WhisperModel(MODEL, device="cpu", compute_type="int8", cpu_threads=os.cpu_count() or 4)
-        except Exception as e:
-            if MODEL_GIVEN or MODEL != "large-v3-turbo": raise
-            print(f"   النموذج turbo ما اشتغل ({e}) — نرجع لـlarge-v3 (أبطأ).", flush=True)
-            MODEL = "large-v3"
-            fw = WhisperModel(MODEL, device="cpu", compute_type="int8", cpu_threads=os.cpu_count() or 4)
+    if os.name == "nt":
+        # ويندوز: كرت NVIDIA بـfloat16 والا المعالج (_whisper.py)، ووقت متوقع من مدة a.wav، والجهاز ما ينام لين يخلص
+        import _whisper, wave, ctypes
+        fw, DEV = _whisper.load(MODEL)
+        print(f"التفريغ على كرت الشاشة (cuda {fw.model.compute_type})" if DEV == "cuda"
+              else f"التفريغ على المعالج (int8، {_whisper.THREADS} خيوط)", flush=True)
+        if BATCHED and DEV != "cuda": BATCHED = False; print("--batched على كرت الشاشة بس: التفريغ بالطريقة العادية", flush=True)
+        try:   # من مدة المقطع: الكرت ~0.2 منها (5090) و--batched ~0.05، المعالج ~1.0 (قسنا 0.6 على 16 نواة، واللابتوب ابطا)
+            with wave.open(W + "a.wav") as wf: est = wf.getnframes() / wf.getframerate() * ((0.05 if BATCHED else 0.2) if DEV == "cuda" else 1.0)
+            print(f"⏱ متوقع ~{round(est / 60)} دقيقة" if est >= 60 else "⏱ متوقع اقل من دقيقة", flush=True)
+        except Exception: pass
+        if DEV == "cpu" and MODEL == "large-v3": print("على المعالج: --model large-v3-turbo اسرع", flush=True)
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)   # ES_CONTINUOUS|ES_SYSTEM_REQUIRED: ينتهي مع خروج العملية
     else:
         fw = WhisperModel(MODEL, device="auto", compute_type="auto")
-    segs, info = fw.transcribe(W + "a.wav", language=LANG, word_timestamps=True, vad_filter=False)
+    if BATCHED:
+        # دفعات: Silero VAD (جوا faster-whisper، ما ينزل شي) يقسم الكلام عند السكتات لقطع تتفرغ مع بعض بلا سياق اللي
+        # قبلها. قسناها على كلام 38 دقيقة (RTX 5090): بقطع 30 ثانية (الافتراضي) طاح كلام، 15٪ مع التوقيتات و5.5٪ بدونها،
+        # وبدونها كل قطعة جملة وحدة (كرت كابشن 30 ثانية يغطي اكثر من مقطع بالقص). بقطع 6 ثواني مع التوقيتات ما طاح الا
+        # 0.1٪، والجمل قصيرة مثل العادي. الدفعة 8 و16 و24: 105 و109 و122 ثانية، و8 ياخذ من ذاكرة الكرت اقل (~6 قيقا مع النموذج، 16 ياخذ ~9)
+        from faster_whisper import BatchedInferencePipeline
+        bs = int(os.environ.get("VEB_STT_BATCH", "8"))
+        print(f"تفريغ دفعات (batch {bs})", flush=True)
+        segs, info = BatchedInferencePipeline(model=fw).transcribe(W + "a.wav", language=LANG, word_timestamps=True, batch_size=bs,
+                                                                   beam_size=5, chunk_length=6, without_timestamps=False)
+    else:
+        segs, info = fw.transcribe(W + "a.wav", language=LANG, word_timestamps=True, vad_filter=False)
     segs = list(segs)
     r = {"text": "".join(s.text for s in segs), "language": info.language,
          "segments": [{"start": s.start, "end": s.end, "text": s.text,
@@ -100,7 +100,7 @@ for seg in out["segments"]:
         core = strip(w["word"])
         if core in DM: w["word"] = w["word"].replace(core, DM[core])
     seg["text"] = "".join(w["word"] for w in seg["words"]) if seg["words"] else seg["text"]
-_paths.write_json(W + "a.json", out)
+with open(W + "a.json", "w", encoding="utf-8") as fh: json.dump(out, fh, ensure_ascii=False, indent=1)
 nw = sum(len(s["words"]) for s in out["segments"])
 print(f"✅ a.json — {MODEL} · {len(out['segments'])} جملة · {nw} كلمة · {dt:.0f} ثانية")
 print("الخطوة التالية: صحّح كل جملة بـfixes.json (التفريغ يغلط بالعامية) ثم 02_captions.py")

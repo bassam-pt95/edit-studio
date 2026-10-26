@@ -1,6 +1,6 @@
 ---
 name: studio-chat
-description: How a Claude chat edits the user's video through Edit Studio ("استوديو المونتاج"): every change goes through the studio's own tools (project_summary first, then apply, draw, redraw, edit_graphic, openings, behind-the-person), lands live on the open timeline as one undo step, and the chat never writes project files or bakes the user's face into a graphic. Use when the user asks to edit, caption, cut, add a graphic, picture, sound, opening or move to the clip open in the studio, or says "افتح الاستوديو" / "عدّل في الاستوديو".
+description: How a Claude chat edits the user's video through B Studio (once called «استوديو المونتاج» or Edit Studio): every change goes through the studio's own tools (project_summary first, then apply, draw, redraw, edit_graphic, openings, behind-the-person), lands live on the open timeline as one undo step, and the chat never writes project files or bakes the user's face into a graphic. Use when the user asks to edit, caption, cut, add a graphic, picture, sound, opening or move to the clip open in the studio, or says "افتح الاستوديو" / "عدّل في الاستوديو".
 ---
 
 # Editing a clip through the studio from a chat
@@ -36,9 +36,14 @@ undo step named «تعديل من المحادثة» (the user can press Cmd/Ctr
   face and no footage of him. Openings and moves, behind the person, punch-in and windows, the colour grade and the
   baked-face check do not apply (the operations are refused). Scenes take the full frame over the paper background, and
   every moment needs one: `preflight` warns when more than 1.5 s shows only the background.
+- **Captions he did not say**: whisper sometimes squeezes in words from the sentence before (a frame each) or writes its
+  stock phrase («اشتركوا في القناة») over his words. Fix the caption, never the video: `setSentenceWords {id, words}`
+  writes a sentence again word by word in source seconds (time the words on his voice; keep a word's `id` where the
+  word stays), `setWordText` changes one word, `removeWords` takes words off the caption only. `cutWords` cuts the video
+  under words: only for words he really said and wants gone.
 - **Pictures and sounds**: `add_media` brings a picture or a sound in, `find_sounds` looks for sounds on this machine, and
   `sound_places` checks that each placed sound hits where something happens in the picture.
-- **Plan and notes**: `plan_get`, `plan_set_section`, `plan_mark_built` keep the plan; `notes`, `note`, `resolve_note`
+- **Plan and notes**: `plan_get`, `plan_set_section` (give the card's `rev` from `plan_get`: a card he changed since is refused, read it again), `plan_propose` (a change he approves on the card), `plan_working`, `plan_inspire`, `plan_mark_built` (with `note`) keep the plan; `notes`, `note`, `resolve_note`
   answer the notes the user left on the timeline.
 
 ## Never

@@ -9,17 +9,16 @@
 
 الاستعمال: python3 23_gaze_check.py <مجلد> [اسم_الورقة]
 """
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import json, subprocess
+import json, os, subprocess, sys
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 
 d = sys.argv[1] if len(sys.argv) > 1 else '.'
 out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(d, 'gaze_sheet.jpg')
 src = os.path.join(d, 'cutz.mp4')
 FPS = 30
 
-wins = _paths.read_json(os.path.join(d, 'stage.json'))
+wins = json.load(open(os.path.join(d, 'stage.json'), encoding='utf-8-sig'))
 # «يرجع وجهه» = نافذة FULL تبدأ بعد نافذة رسم تغطّي الشاشة
 cuts = [round(float(w['s']), 2) for i, w in enumerate(wins)
         if w['m'] == 'FULL' and i > 0 and wins[i - 1]['m'] == 'NONE']

@@ -29,7 +29,11 @@ def imread(p, flag):
 
 
 def load(p):
-    im = imread(p, cv2.IMREAD_UNCHANGED)
+    if os.name == 'nt':
+        b = np.fromfile(p, np.uint8)
+        im = cv2.imdecode(b, cv2.IMREAD_UNCHANGED) if b.size else None
+    else:
+        im = cv2.imread(p, cv2.IMREAD_UNCHANGED)
     if im is None: raise SystemExit(f'cannot read {p}')
     if im.ndim == 2: im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGRA)
     if im.shape[2] == 3: im = np.concatenate([im, np.full(im.shape[:2] + (1,), 255, np.uint8)], 2)

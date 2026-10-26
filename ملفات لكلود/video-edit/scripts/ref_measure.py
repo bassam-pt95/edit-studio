@@ -7,9 +7,9 @@
   ffmpeg -i ref.mp4 -vf "fps=12,scale=160:90,format=gray" -f rawvideo v.raw -y
   python3 measure_ref.py a.raw v.raw
 """
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
+import sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 import numpy as np
 SR, FPS, W, H, HOP = 22050, 12, 160, 90, 1024
 a = np.fromfile(sys.argv[1] if len(sys.argv) > 1 else 'a.raw', dtype=np.float32)

@@ -8,6 +8,7 @@
    • كل عنصر يطلع ويختفي لحاله = مكوّن لحاله بـ const A=…, B=…; بأول سطر، وفوقه تعليق فيه اسمه بس
      (مثل «ختم مستحيل» بين علامتي التعليق). الاستوديو يفتح كل مكوّن قطعة منفصلة بهالاسم يقدر يحذفها ويحركها.
      الرسمة المعقدة اللي تتحرك كلها سوا مكوّن واحد. */
+import React from 'react';   // ⛔ يبقى أول سطر: بدونه JSX وReact.memo برا الدوال يطيّحون الرندر («React is not defined»)
 import {T} from './theme';
 import {p, ease, back, rgba, onACC, lerp} from './util';
 import caps from './caps.json';

@@ -53,9 +53,10 @@
 
 
 **بعد السؤال ٦، ابنِ الهوية** (من مجلد المهارة، وهو يكتب `profile.json` بمجلد بياناته):
-(ويندوز/PowerShell: كل قيمة بتنصيص، مثل `--handle '@yourname'`؛ الأمر يرفض قيمة تبدأ بـ`--`.)
-`python3 scripts/make_theme.py --bg … --acc … --font … --handle … [--ink …] [--caption 55|65] [--numerals western|arabic] [--font-local] [--font-display …] [--logo …] [--bg-style …]`
+`python3 scripts/make_theme.py --bg '#…' --acc '#…' --font '…' --handle '@…' [--ink '#…'] [--caption 55|65] [--numerals western|arabic] [--font-local] [--font-display '…'] [--logo '…'] [--bg-style …]`
+كل قيمة بين تنصيص مفرد، مثل `--bg '#F5F8FF' --font 'IBM Plex Sans Arabic' --handle '@yourname'`: `#` بلا تنصيص يبدا تعليق ويضيع باقي الامر، و`@` بلا تنصيص بـPowerShell تختفي فياخذ `--handle` الخيار اللي بعده.
 وبعده افتح `profile.json` وعدّل بيدك المفتاحين اللي ما لهم خيار بالأمر: `captionStyle` (`card` أو `slim`) و`noZoom` (`true` للقريب من الكاميرا).
+بالويندوز: اي مسار بـ`profile.json` يكون كامل بشرطات امامية، مثل `--logo 'C:/Users/<name>/Pictures/logo.png'`. ومسارات `prefs` (مكتبة الاصوات ومكان التسليم) ما تكتبها بيدك بالملف: حطها بامر json اللي تحت «اكتب الاجابات».
 
 **٧. الصور:**
 - صور مجانية من مصادر موثوقة على النت، مسموحة؟
@@ -74,7 +75,7 @@
 **١١. التسليم:** وين يبي الملف النهائي؟ (الافتراضي: نفس مجلد الفيديو الأصلي.)
 
 ### اكتب الإجابات
-`profile.json` (بعد `make_theme.py`) — أضف (ويندوز: المسارات داخله بـ`/` ومسار كامل بلا `~`، مثل `"soundLibrary": "C:/Users/<اسمه>/Music/SFX"`؛ وتُكتب بأداة Write أو بايثون، لا بـ`>` من PowerShell):
+`profile.json` (بعد `make_theme.py`) — أضف:
 ```json
 "prefs": {
   "contentType": "شرح", "style": "simple",
@@ -84,6 +85,10 @@
   "readsFromScript": true, "preCut": false, "closeToCamera": true,
   "touchColorAudio": false, "deliverTo": "same-folder"
 }
+```
+بالويندوز: `soundLibrary` و`deliverTo` (لو مو `same-folder`) مسارات كاملة بشرطات امامية بلا `~`، مثل `C:/Users/<name>/Music/SFX`: الشرطة الخلفية الوحدة (`C:\Users\...`) تخرب الـJSON (`Invalid \escape`) وينتقل الخلل لكل `theme.json`، و`~` ما يتوسع من PowerShell ولا داخل JSON. وحط المسار بـjson.load/json.dump مو بيدك (من مجلد المهارة، مفتاح وقيمة كل مرة):
+```bash
+python3 -c "import json,sys;sys.path.insert(0,'scripts');import _paths;p=_paths.data('profile.json');k,v=sys.argv[1:];d=json.load(open(p,encoding='utf-8-sig'));d.setdefault('prefs',{})[k]=v;json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=1)" soundLibrary "C:/Users/<name>/Music/SFX"
 ```
 `voice.md` — ابدأه كذا، وكل ملاحظة لغوية يعطيك إياها أضفها له:
 ```markdown

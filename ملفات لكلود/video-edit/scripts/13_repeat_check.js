@@ -10,7 +10,7 @@ const W=path.resolve(process.argv[2])+path.sep;
 const NAME=process.argv[3]||'(بلا اسم)';
 const P=require('./_paths'); P.ensure();
 const MF=P.data('mechanisms.json');
-const M=fs.existsSync(MF)?readJson(MF):{videos:[],mechs:{},rejected:[],sounds:{}};
+const M=fs.existsSync(MF)?P.readJSON(MF):{videos:[],mechs:{},rejected:[],sounds:{}};
 if(!M.videos.length){ console.log('✅ السجل فاضي (أول مقطع) — ما فيه شي يتكرر'); process.exit(0); }
 /* ريموشن: المشاهد مكوّنات بـScenes.tsx — كان الفاحص يقرأ compose.html بس فيطلّع «مشاهد: 0»
    ويقول «ولا آلية مكرّرة» وهو ما فحص شيئاً. */

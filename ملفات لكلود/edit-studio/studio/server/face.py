@@ -6,6 +6,8 @@ import sys
 
 def main():
     files = sys.argv[1:]
+    if files == ['-']:
+        files = [ln.rstrip('\r') for ln in sys.stdin.buffer.read().decode('utf-8').split('\n') if ln.rstrip('\r')]
     try:
         import cv2
         import mediapipe as mp

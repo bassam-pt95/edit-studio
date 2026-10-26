@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os, sys, json, time, argparse, subprocess
+import os, re, sys, json, time, argparse, subprocess
 
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS_WARNING', '1')
@@ -214,6 +214,16 @@ CHUNK = 300.0
 TAIL_WORDS = 60
 
 
+STOCK_CARRY = re.compile(r'ترجمة نانسي قنقر|ترجمة نانسي|نانسي قنقر|اشتركوا في القناة|شكرا (?:لكم )?(?:على المشاهدة|للمشاهدة)|نانسي|قنقر')
+
+
+def carry(heard, fallback):
+
+    text = STOCK_CARRY.sub(' ', ' '.join(heard))
+    words = text.split()
+    return ' '.join(words[-TAIL_WORDS:]) or fallback
+
+
 def chunks_of(isl, size=CHUNK):
 
     order = sorted(range(len(isl)), key=lambda k: isl[k]['s'])
@@ -292,7 +302,7 @@ def whole(engine, audio, isl, a, prompt):
                     continue
                 per[k].append({'t': t, 's': round(ws, 4), 'e': round(we, 4), 'p': round(float(w.get('probability', 0)), 3)})
 
-        context = ' '.join(heard[-TAIL_WORDS:]) or context
+        context = carry(heard, context)
         free_cache()
         sec = round(time.time() - t0, 2)
         for j, it in enumerate(sub):

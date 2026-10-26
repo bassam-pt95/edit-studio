@@ -5,21 +5,21 @@
 ① نافذة فاضية  — نافذة مفتوحة > 0.35 ث بلا رسمة داخلها («شوف الفراغات مازالت»)
 ② جمود         — رسمة ثابتة > 2.5 ث وهو يكمّل كلاماً ثانياً («يطول الكلام على كلام مو له»)
 ③ رسمة FULL تحت y=420 — تدخل على شعره («داخل على شعري مازال»)
+⓪ وقبلها: Scenes.tsx فيه JSX أو React. بلا import React — الرندر يطيح بـ«React is not defined»
 
 ⛔ الحركة المستمرة ليست جموداً: p(t,a,b) = حركة من a إلى b. أول نسخة من هذا الفاحص
    عدّت المدى فجوة وطلّعت ٥٤ ثانية جمود كاذبة. المدى يُغطّى، والفجوة بين المديات هي الجمود."""
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import re, io, json
+import re, io, json, sys, os
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 W = os.path.abspath(sys.argv[1]) + '/'
 s   = io.open(W+'Scenes.tsx', encoding='utf-8').read()
-ST  = _paths.read_json(W+'stage.json')
-FMT = _paths.read_json(W+'formats.json') if os.path.exists(W+'formats.json') else {}
-VEND= _paths.read_json(W+'caps.json')['total']
+ST  = json.load(open(W+'stage.json', encoding='utf-8-sig'))
+FMT = json.load(open(W+'formats.json', encoding='utf-8-sig')) if os.path.exists(W+'formats.json') else {}
+VEND= json.load(open(W+'caps.json', encoding='utf-8-sig'))['total']
 EMPTY, FROZEN, FULL_FLOOR = 0.35, 2.5, 420
 # ⛔ الحدّ يتبع وجه المتحدث بكل مقطع: أعلى وجهه (12_face_guard) ناقص ١٥٨ — يختلف حسب قرب الكاميرا (مثال: 579→420 · 528→370)
-_sj = _paths.read_json(W+'safe.json') if os.path.exists(W+'safe.json') else {}
+_sj = json.load(open(W+'safe.json', encoding='utf-8-sig')) if os.path.exists(W+'safe.json') else {}
 FULL_FLOOR = int(_sj.get('fullFloor', FULL_FLOOR))
 
 names = re.findall(r'const (\w+) = \(\{t', s); bodies = {}
@@ -34,6 +34,15 @@ for m in re.finditer(r'<(\w+) t=\{t\} A=\{([\d.]+)\} B=\{([\d.]+)\}(?: at=\{([\d
     R[m.group(1)] = (float(m.group(2)), float(m.group(3)))
     if m.group(4): AT[m.group(1)] = float(m.group(4))
 bad = 0
+
+# ⓪ محرّك ريموشن المشترك بلا typescript، فيحوّل JSX لـReact.createElement، وReact العام ما ينعرّف إلا بعد ما ينقرا
+#    Scenes.tsx: JSX أو React.memo/createContext برا الدوال يطيّح الرندر. القالب يبدأ بـimport React، وهنا نتأكد إنه باقي.
+print("⓪ استيراد React")
+_code = re.sub(r'/\*.*?\*/|//[^\n]*', ' ', s, flags=re.S)   # بلا تعليقات: القالب فيه أمثلة JSX داخل تعليق
+_jsx = re.search(r'(?:^|[(\[{,:?=]|=>|\breturn\b|&&|\|\|)\s*<(?:>|[A-Za-z][\w.]*[\s/>])', _code, re.M)
+if (_jsx or re.search(r'\bReact\.', _code)) and not re.search(r'^\s*import\s+(?:React\b|\*\s+as\s+React\b)', _code, re.M):
+    print("   ⚠️ Scenes.tsx فيه JSX أو React. بلا import React — الرندر يطيح بـ«React is not defined».")
+    print("      رجّع السطر أول الاستيرادات مثل القالب:  import React from 'react';"); bad += 1
 
 def merge(iv):
     iv = sorted(iv); out = []
@@ -72,7 +81,7 @@ import _paths
 FW, FH = _paths.frame(W)
 if FW > FH:
     # العرضي: الرسمة فوق وجهه (FULL) تبقى بالجهة الثانية من وجهه — ما تدخل عمود وجهه
-    _th = _paths.read_json(W+'theme.json') if os.path.exists(W+'theme.json') else {}
+    _th = json.load(open(W+'theme.json', encoding='utf-8-sig')) if os.path.exists(W+'theme.json') else {}
     fx = float(_th.get('faceX', 0.25 if _th.get('faceSide') == 'left' else 0.75)) * FW
     col = (fx - FW*0.16, fx + FW*0.16)
     print(f"③ رسومات فوق وجهه كاملاً تدخل عمود وجهه ({int(col[0])}…{int(col[1])})")

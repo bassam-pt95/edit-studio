@@ -1,6 +1,6 @@
 #!/bin/bash
-# update.sh — يحدّث «استوديو المونتاج» ومهارة المونتاج من المستودع على GitHub (ماك، أو ويندوز من Git Bash).
-#   bash update.sh           ← ينزّل آخر نسخة ويشغّل install.sh حقها (القديمة تروح لسلة المهملات، وعلى ويندوز لمجلد «edit-studio-old» ببيت المستخدم)، وآخر سطر وين يكمّل كلود
+# update.sh — يحدّث «B Studio» ومهارة المونتاج من المستودع على GitHub (ماك، أو ويندوز من Git Bash).
+#   bash update.sh           ← ينزّل آخر نسخة ويشغّل install.sh حقها (القديمة تروح لسلة المهملات، وعلى ويندوز لمجلد ~/edit-studio-old)، وآخر سطر وين يكمّل كلود
 #                              (install.sh حقها يسجّل المكوّن الإضافي لمحادثات Claude Code ويركّبه، ولو ما قدر يطبع الأمرين للمستخدم)
 #   bash update.sh --check   ← بس يقارن: «same <النسخة>» أو «newer <اللي عنده> <الجديدة>»
 #   خروج 0 تمام · 15 ما فيه نت أو المستودع ما ينوصل · 16 النسخة المنزّلة ناقصة. مشاريع المستخدم وإعداداته ما تنلمس.
@@ -20,7 +20,8 @@ older(){ [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n
 
 if [ "${1:-}" = "--check" ]; then
   T="$(mktemp -d)"; trap 'rm -rf "${T:?}"' EXIT
-  curl -fsSL ${CURL_X[@]+"${CURL_X[@]}"} --max-time 30 "$RAW/$FOR_ENC/edit-studio/manifest.json" -o "$T/m.json" 2>"$T/curl.err" || { echo "ما قدرت أوصل للمستودع: تأكد من النت وجرّب بعد شوي."; [ "$OS" = win ] && tail -n 2 "$T/curl.err"; exit 15; }
+  ERR=/dev/null; [ "$OS" = win ] && ERR="$T/curl.err"   # ويندوز: خطا curl يبان (curl_why)، مو يختفي
+  curl -fsSL $CURL_TLS --max-time 30 "$RAW/$FOR_ENC/edit-studio/manifest.json" -o "$T/m.json" 2>"$ERR" || { echo "ما قدرت أوصل للمستودع: تأكد من النت وجرّب بعد شوي."; curl_why "$ERR"; exit 15; }
   NEW="$(ver_of "$T/m.json")"
   [ -n "$NEW" ] || { echo "ما قدرت أقرأ رقم النسخة من المستودع."; exit 15; }
   if [ "$NEW" = "$CUR" ] || older "$NEW" "$CUR"; then echo "same $CUR"; else echo "newer ${CUR:-?} $NEW"; fi
@@ -28,15 +29,16 @@ if [ "${1:-}" = "--check" ]; then
 fi
 
 T="$(mktemp -d)"; trap 'rm -rf "${T:?}"' EXIT
+ERR=/dev/null; [ "$OS" = win ] && ERR="$T/curl.err"
 echo "أنزّل آخر نسخة من $REPO …"
-curl -fsSL ${CURL_X[@]+"${CURL_X[@]}"} --max-time 600 "$TARBALL" -o "$T/studio.tar.gz" 2>"$T/curl.err" || { echo "ما قدرت أنزّل النسخة: تأكد من النت وجرّب بعد شوي."; [ "$OS" = win ] && tail -n 2 "$T/curl.err"; exit 15; }
+curl -fsSL $CURL_TLS --max-time 600 "$TARBALL" -o "$T/studio.tar.gz" 2>"$ERR" || { echo "ما قدرت أنزّل النسخة: تأكد من النت وجرّب بعد شوي."; curl_why "$ERR"; exit 15; }
 tar -xzf "$T/studio.tar.gz" -C "$T" 2>/dev/null || { echo "الملف المنزّل ما انفك."; exit 16; }
 INS="$(find "$T" -maxdepth 3 -path '*/ملفات لكلود/install.sh' -print -quit)"
 [ -n "$INS" ] && [ -f "$(dirname "$INS")/edit-studio/SKILL.md" ] || { echo "النسخة المنزّلة ناقصة (ما فيها ملف التركيب)."; exit 16; }
 NEW="$(ver_of "$(dirname "$INS")/edit-studio/manifest.json")"
 echo "النسخة اللي عندك: ${CUR:-?} · النسخة بالمستودع: ${NEW:-?}"
 if older "$NEW" "$CUR"; then echo "عندك نسخة أحدث (${CUR}) من اللي بالمستودع (${NEW}): ما فيه تحديث، وما أرجّعك لنسخة أقدم."; exit 0; fi
-# التركيب ينقل مجلد المهارة القديم (وهذا السكربت داخله) للسلة: نكمّل من سكربت صغير بالمجلد المؤقت، وهو ينظّف وراه
+# التركيب ينقل مجلد المهارة القديم (وهذا السكربت داخله) للسلة (ويندوز: لمجلد ~/edit-studio-old): نكمّل من سكربت صغير بالمجلد المؤقت، وهو ينظّف وراه
 printf '%s\n' 'bash "$1"; rc=$?; rm -rf "${2:?}" 2>/dev/null || true; exit $rc' > "$T/run.sh"
 trap - EXIT
 cd "$HOME" 2>/dev/null || cd /

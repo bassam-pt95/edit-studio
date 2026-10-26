@@ -7,10 +7,9 @@
   بعد الرندر (--out):    21_color_check · 25_flash_check · 20_voice_check · معدل البت ≥ ثلث المصدر (القاعدة ٨٧)
 يخرج بالرمز 3 لو أي فاحص فشل. «رندر نجح» ما يعني «سليم» — هذا الجدول هو اللي يعني.
 """
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _paths; _paths.utf8_guard()   # ويندوز بدون UTF-8: يعيد تشغيل السكربت بـ-X utf8 (ماك/لينكس: لا شي)
-import subprocess, json
+import sys, os, subprocess, json
+if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
+    os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))
 
 if len(sys.argv) < 2: print(__doc__); sys.exit(2)
 W = os.path.abspath(sys.argv[1]); K = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +19,7 @@ REM = os.path.exists(os.path.join(W, "Scenes.tsx"))
 # وضع المقطع (<work>/mode.json ← {"mode": "quick" | "light" | "full"}): «قص وكابشن» و«خفيف» بلا مشاهد،
 # فما نشغّل فواحص المشاهد (نوافذ · جمود · تكرار · تغطية · نظرة) — نفحص الصوت والصورة والجودة بس.
 _mp = os.path.join(W, "mode.json")
-MODE = _paths.read_json(_mp).get("mode", "full") if os.path.exists(_mp) else "full"
+MODE = json.load(open(_mp, encoding="utf-8-sig")).get("mode", "full") if os.path.exists(_mp) else "full"
 SCENES = MODE == "full"
 HAS_SFX = os.path.exists(os.path.join(W, "sfx.json")) or os.path.exists(os.path.join(W, "sfx_events.json"))
 
@@ -37,12 +36,12 @@ elif REM:
     rows.append(run("18 جدول النوافذ",   [sys.executable, f"{K}/18_stage_from_scenes.py", W]))
     # ⛔ أساليب العُدّة (الكولاج): 18 يكتب whoosh_up/down بـsfx.json ومازجها ما يعرفها — بدون إعادة المزج يقيس 05b أصواتاً مو بالملف
     _st = os.path.join(W, "style.json")
-    if os.path.exists(_st) and _paths.read_json(_st).get("style") in ("collage", "documentary", "board", "vox") and os.path.exists(os.path.join(W, "sfx_events.json")):
+    if os.path.exists(_st) and json.load(open(_st, encoding="utf-8-sig")).get("style") in ("collage", "documentary", "board", "vox") and os.path.exists(os.path.join(W, "sfx_events.json")):
         _vm = os.path.join(os.path.dirname(K), "styles", "collage", "mix_sfx.py")
-        _mx = run("05 مازج الأصوات", [sys.executable, _vm, W])
-        if not _mx[1]: rows.append(_mx)     # ⛔ كان يتجاهل فشله ويقيس 05b ملف sfx.wav قديم
-        else:
-            _sj = os.path.join(W, "sfx.json"); _d = _paths.read_json(_sj); _d.setdefault("outro", 0); _paths.write_json(_sj, _d, indent=None)
+        _mx = run("mix_sfx", [sys.executable, _vm, W])
+        if not _mx[1]: rows.append(_mx)   # لو فشل المازج يطلع له صف ❌ — بدونه يقيس 05b ملف sfx.wav القديم
+        _sj = os.path.join(W, "sfx.json"); _d = json.load(open(_sj, encoding="utf-8-sig")); _d.setdefault("outro", 0)
+        with open(_sj, "w", encoding="utf-8") as fh: json.dump(_d, fh, ensure_ascii=False)
     rows.append(run("19 فراغ · جمود · شعر", [sys.executable, f"{K}/19_scene_audit.py", W]))
 else:
     rows.append(run("08 المنطقة الآمنة",  ["node", f"{K}/08_safe_check.js", W]))

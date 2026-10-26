@@ -1,3 +1,4 @@
+import React from 'react';
 import {T, CAP, CAPMOVE, VH, VW, WIDE} from './theme';
 import {p, rgba, ease, back} from './util';
 import caps from './caps.json';

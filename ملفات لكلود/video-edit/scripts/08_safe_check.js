@@ -8,13 +8,12 @@
    شلون: نرسم الشريحة نفسها بس نبدّل صورة الفيديو بلون مسطّح — فكل ما تبقّى = رسمك أنت.
    نعدّ بكسلات رسمك داخل كل منطقة خطرة.
    الحدود تتعدّل بملف <work>/safe.json إذا احتجت.                                             */
-const path=require('path'), fs=require('fs');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const path=require('path'), fs=require('fs'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep;
 const SHOT=process.argv.includes('--shot');
-const CFG=readJson(W+'sfx.json');
-const THEME=fs.existsSync(W+'theme.json')?readJson(W+'theme.json'):{};
-const caps=readJson(W+'caps.json');
+const CFG=readJSON(W+'sfx.json');
+const THEME=fs.existsSync(W+'theme.json')?readJSON(W+'theme.json'):{};
+const caps=readJSON(W+'caps.json');
 const FPS=30, OUT_D=CFG.outro, DUR=caps.total+OUT_D;
 if(fs.existsSync(W+'compose.html')) require('./_paths').warnIfNotTall(W);   /* ريموشن يدعم العريض — التحذير للخفيف بس */
 
@@ -28,7 +27,7 @@ const DEF={
   ],
   hook_max:0.5            // أول كابشن لازم يظهر بأول نصف ثانية
 };
-const SAFE=fs.existsSync(W+'safe.json')?{...DEF,...readJson(W+'safe.json')}:DEF;
+const SAFE=fs.existsSync(W+'safe.json')?{...DEF,...readJSON(W+'safe.json')}:DEF;
 
 function resolvePuppeteer(){
   for(const p of [process.env.PUPPETEER_PATH,'puppeteer-core','puppeteer',
@@ -36,7 +35,7 @@ function resolvePuppeteer(){
       require('path').join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]) {
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت puppeteer-core (أداة المحرّك الخفيف) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
+  throw new Error(require('./_paths').PUP_HINT);
 }
 /* بكسلان مصمتان (أحمر وأخضر) يحلّان محل صورة الفيديو.
    نرسم كل لحظة مرتين: البكسل اللي يتغيّر بينهما = مكان الفيديو، واللي يثبت = رسمك أنت.

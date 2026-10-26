@@ -3,13 +3,12 @@
    node 04_render_frames.js <workdir> all --force               ← يعيد الرسم من الصفر
    node 04_render_frames.js <workdir> range 12.0 18.5           ← يعيد رسم نافذة وحدة بس (بعد تعديل مشهد)
    node 04_render_frames.js <workdir> preview 4.6 12.3 31.0     */
-const path=require('path'), fs=require('fs');
-const readJson=require('./_paths').readJson;   /* يشيل BOM (PowerShell 5.1 يكتبه) */
+const path=require('path'), fs=require('fs'), {readJSON}=require('./_paths');
 const W=path.resolve(process.argv[2])+path.sep;
-const CFG=readJson(W+'sfx.json');       // فيه outro
-const THEME=fs.existsSync(W+'theme.json')?readJson(W+'theme.json'):{};
-const BEHIND=fs.existsSync(W+'behind.json')?readJson(W+'behind.json'):null;  // الكلام ورا الشخص
-const MARKS=fs.existsSync(W+'marks.json')?readJson(W+'marks.json'):[];   // تحديدات ذكية على لقطات (من Vision)  // الكلام ورا الشخص
+const CFG=readJSON(W+'sfx.json');       // فيه outro
+const THEME=fs.existsSync(W+'theme.json')?readJSON(W+'theme.json'):{};
+const BEHIND=fs.existsSync(W+'behind.json')?readJSON(W+'behind.json'):null;  // الكلام ورا الشخص
+const MARKS=fs.existsSync(W+'marks.json')?readJSON(W+'marks.json'):[];   // تحديدات ذكية على لقطات (من Vision)  // الكلام ورا الشخص
 const OUT_D=CFG.outro, FPS=30;
 require('./_paths').warnIfNotTall(W);
 function resolvePuppeteer(){
@@ -18,7 +17,7 @@ function resolvePuppeteer(){
       require('path').join(require('./_paths').HOME,'tools','node_modules','puppeteer-core')]) {
     if(!p) continue; try{ return require(p); }catch(e){}
   }
-  throw new Error('ما لقيت puppeteer-core (أداة المحرّك الخفيف) — ثبّتها مرة وحدة: '+require('./_paths').puppeteerHint());
+  throw new Error(require('./_paths').PUP_HINT);
 }
 const CHROME=require('./_paths').chromeOrExit();
 /* ينتظر نزول الخط فعلياً ويتأكد منه بالقياس — يرجّع false لو الخط ما وصل */
@@ -43,7 +42,7 @@ async function ensureFont(p,FF){
 (async()=>{
   const puppeteer=resolvePuppeteer();
   const mode=process.argv[3]||'all';
-  const caps=readJson(W+'caps.json');
+  const caps=readJSON(W+'caps.json');
   const NVF=fs.readdirSync(W+'vfr').filter(f=>f.endsWith('.jpg')).length;
   const dur=caps.total+OUT_D;
   const b=await puppeteer.launch({executablePath:CHROME,headless:'new',

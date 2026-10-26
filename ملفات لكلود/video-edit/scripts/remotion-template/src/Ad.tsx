@@ -1,3 +1,4 @@
+import React from 'react';
 import {AbsoluteFill, Audio, OffthreadVideo, getRemotionEnvironment, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {T, VEND, OUTRO, HAS_SFX, GUIDES, FACE_ANCHOR, FACE_X} from './theme';
 import {rgba} from './util';

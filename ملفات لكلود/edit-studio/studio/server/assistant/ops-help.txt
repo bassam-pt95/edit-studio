@@ -61,6 +61,7 @@ translate: {ids, dx, dy}: move by output px.
 setBackground: {preset, color?}: the background under the scenes of a voice clip: kind studio, grid or soft in one colour '#rrggbb' (no colour: it keeps its colour). Older preset ids (paper, mist, charcoal, ink, pine, dusk, blueprint, custom) still work: model/backgrounds.js
 setBackgroundPhoto: {assetId, asset?, option?, mean?}: a picture as the background of a voice clip («أخرى» → «أرفق صورة»). `assetId` is an image of the project's media, or (with `asset`, the record /api/import answered) a new one that is added in the same step. `option` is 'plain
 setEdges: {edges:'blur'|'black'|'bg'}: what fills the edges of fitted clips.
+setFaceKind: [2026-10-28, SPEC-v2 §51] {face: 'face' | 'none' | null}: his answer to «is your face in this clip?» («وجهي في المقطع» / «صوت بلا وجه», in the plan and in «مقطع جديد»): kept as p.meta.face, it wins over what the face track finds (model/face-kind.js); null forg
 setFrame: {frame:'tall'|'wide'|'square', mode:'keep'|'fill'|'relayout'}: the project's frame. shape — the studio's way (as Final Cut changing a project's format): only the frame and the video change — a clip narrower than the frame shows whole with edges, a wider one fi
 setSpineFit: {ids, fit:'fit'|'fill'}: a clip shows its whole picture (edges) or fills the frame (crops).
 setSpineTf: 

@@ -3,7 +3,8 @@
 #   كلود يشغّله لما يقول المستخدم «ركّب B Studio» أو «حدّث الاستوديو»:   bash "<هذا المجلد>/install.sh"
 #   ما ينزّل شي من النت وما يحذف شي: النسخة القديمة من أي وحدة منهم تروح لسلة المهملات (ويندوز: لمجلد «edit-studio-old» ببيت المستخدم).
 #   والدليل اللي جنب هالمجلد ينحط على سطح المكتب (القديم يروح مع النسخ القديمة).
-#   وبعد المهارتين يسجّل المكوّن الإضافي لمحادثات Claude Code (سوق edit-studio داخل مجلد المهارة)، ولو ما قدر يطبع الأمرين للمستخدم.
+#   وبعد المهارتين يسجّل المكوّن الإضافي لمحادثات Claude Code (سوق edit-studio داخل مجلد المهارة)، ولو ما قدر يطبع الأمرين للمستخدم،
+#   ويربط أدوات الاستوديو بـ Codex وCursor لو موجودين.
 #   يطبع سطر لكل مهارة (✓ ركّبتها · ↺ حدّثتها · = نفسها) وآخر سطر وين يكمّل كلود. أي ✗ = وقف، والخروج 1.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -196,6 +197,30 @@ if [ -f "$LAUNCH" ]; then
     else
       echo "! Codex ما انربط من هنا. شغّل هذا الأمر بنفسك بالطرفية:"
       echo "    codex mcp add edit-studio -- node \"$LAUNCH_SHOW\""
+    fi
+  fi
+fi
+# Cursor: نفس أدوات الاستوديو لمحادثات Cursor (برنامجه بالطرفية agent، ومحرره). Cursor ما عنده أمر يضيف خادم أدوات، فنكتب edit-studio
+# بملفه ~/.cursor/mcp.json ونخلي أي خادم ثاني فيه مثل ما هو. يشتغل فقط لو Cursor موجود، ويعيد الكتابة عند كل تحديث ليلحق المسار الجديد.
+# لو الملف موجود وما انقرا (مكسور)، ما نلمسه ونطبع اللي ينحط فيه.
+if [ -f "$LAUNCH" ]; then
+  CURSOR_DIR="${STUDIO_CURSOR_DIR:-$HOME/.cursor}"
+  has_cursor=0
+  if [ -n "${STUDIO_CURSOR:-}" ] || command -v cursor-agent >/dev/null 2>&1 || [ -x "$HOME/.local/bin/cursor-agent" ] \
+     || { [ -n "${LOCALAPPDATA:-}" ] && [ -d "$LOCALAPPDATA/cursor-agent" ]; } || [ -d "$CURSOR_DIR" ]; then has_cursor=1; fi
+  if [ "$has_cursor" = 1 ]; then
+    LAUNCH_ARG="$LAUNCH"; CMCP="$CURSOR_DIR/mcp.json"; CMCP_ARG="$CMCP"
+    if [ "$WIN" = 1 ] && command -v cygpath >/dev/null 2>&1; then LAUNCH_ARG="$(cygpath -m "$LAUNCH")"; CMCP_ARG="$(cygpath -m "$CMCP")"; fi
+    mkdir -p "$CURSOR_DIR" 2>/dev/null || true
+    if command -v node >/dev/null 2>&1 && node -e 'const fs=require("fs"),[f,l]=process.argv.slice(1);let j={};
+if(fs.existsSync(f)){const t=fs.readFileSync(f,"utf8").replace(/^\uFEFF/,"");if(t.trim())j=JSON.parse(t);}
+if(!j||typeof j!=="object"||Array.isArray(j))process.exit(2);
+j.mcpServers=j.mcpServers&&typeof j.mcpServers==="object"&&!Array.isArray(j.mcpServers)?j.mcpServers:{};
+j.mcpServers["edit-studio"]={command:"node",args:[l]};fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");' "$CMCP_ARG" "$LAUNCH_ARG" >/dev/null 2>&1; then
+      echo "✓ Cursor: جاهز (أي محادثة من Cursor تقدر تعدّل المقطع المفتوح بالاستوديو؛ ابدأ محادثة جديدة)"
+    else
+      echo "! Cursor ما انربط من هنا. افتح الملف $CMCP وحط داخل \"mcpServers\" هذا السطر:"
+      echo "    \"edit-studio\": { \"command\": \"node\", \"args\": [\"${LAUNCH_ARG}\"] }"
     fi
   fi
 fi

@@ -23,13 +23,13 @@
 </script>
 <script id="theme-boot">
 // Appearance, chosen before the first paint so nothing flashes (ui/appearance.js keeps it right afterwards and a unit
-// test holds this script to the same rule as its resolveTheme): his saved choice «light» or «dark», else the device's.
+// test holds this script to the same rule as its resolveTheme): his saved choice, else dark; «auto» follows the device.
 (function () {
   var m = null, light;
   try { m = localStorage.getItem('mohrer.theme'); } catch (e) { /* storage blocked: follows the device */ }
   if (m === 'light') light = true;
-  else if (m === 'dark') light = false;
-  else { try { light = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches); } catch (e) { light = false; } }
+  else if (m === 'auto') { try { light = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches); } catch (e) { light = false; } }
+  else light = false;
   document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
 })();
 </script>

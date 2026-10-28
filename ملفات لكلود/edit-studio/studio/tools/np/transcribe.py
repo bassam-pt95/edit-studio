@@ -124,7 +124,12 @@ def main():
     if a.plan:
         with open(a.islands, encoding='utf-8') as f:
             isl = json.load(f)
-        out({'chunks': [[isl[k]['i'] for k in c] for c in chunks_of(isl, a.chunk)]})
+        table = spans_of(isl, None)
+        cisl = compact_islands(isl, table)
+        pieces = chunks_of(cisl, a.chunk)
+        out({'chunks': [[cisl[k]['i'] for k in c] for c in pieces],
+             'pieces': [[round(min(cisl[k]['s'] for k in c), 4), round(max(cisl[k]['e'] for k in c), 4)] for c in pieces],
+             'compact': round(compact_len(table), 4), 'spans': len(table)})
         return
     try:
         import numpy as np
@@ -240,7 +245,8 @@ def chunks_of(isl, size=CHUNK):
                 at = isl[order[m]]['e']
                 if at - start < 0.6 * size:
                     continue
-                g = isl[order[m + 1]]['s'] - at
+                nxt, cur = isl[order[m + 1]], isl[order[m]]
+                g = nxt.get('os', nxt['s']) - cur.get('oe', cur['e'])
                 if g > gap:
                     best, gap = m, g
             j = best
@@ -270,17 +276,113 @@ def free_cache():
         pass
 
 
+SPAN_PAD = 0.30
+SPAN_JOIN = 0.6
+
+
+def spans_of(isl, dur, pad=SPAN_PAD, join=SPAN_JOIN, sr=SR):
+
+    raw = []
+    for it in sorted(isl, key=lambda x: x['s']):
+        a = max(0.0, it['s'] - pad)
+        b = it['e'] + pad if dur is None else min(dur, it['e'] + pad)
+        if raw and a - raw[-1][1] <= join + 1e-9:
+            raw[-1][1] = max(raw[-1][1], b)
+        else:
+            raw.append([a, b])
+    table, c = [], 0
+    for a, b in raw:
+        ia, ib = int(round(a * sr)), int(round(b * sr))
+        if ib <= ia:
+            continue
+        table.append([ia / sr, ib / sr, c / sr])
+        c += ib - ia
+    return table
+
+
+def compact_len(table):
+
+    return table[-1][2] + table[-1][1] - table[-1][0] if table else 0.0
+
+
+def span_of(t, table):
+
+    lo, hi = 0, len(table)
+    while lo < hi:
+        m = (lo + hi) // 2
+        if table[m][1] < t:
+            lo = m + 1
+        else:
+            hi = m
+    return lo if lo < len(table) and table[lo][0] <= t <= table[lo][1] else None
+
+
+def to_compact(t, table):
+
+    k = span_of(t, table)
+    return None if k is None else table[k][2] + (t - table[k][0])
+
+
+def compact_span(tc, table):
+
+    lo, hi = 0, len(table)
+    while lo < hi:
+        m = (lo + hi) // 2
+        if table[m][2] <= tc:
+            lo = m + 1
+        else:
+            hi = m
+    return max(0, lo - 1)
+
+
+def to_recording(tc, table, k=None):
+
+    if not table:
+        return tc
+    if k is None:
+        k = compact_span(tc, table)
+    a, b, c = table[k]
+    return a + min(b - a, max(0.0, tc - c))
+
+
+def compact_islands(isl, table):
+
+    out = []
+    for it in isl:
+        k = span_of(it['s'], table)
+        if k is None:
+            k = min(range(len(table)), key=lambda j: abs(table[j][0] - it['s']))
+        a, b, c = table[k]
+        at = lambda t: c + min(b - a, max(0.0, t - a))
+        out.append({'i': it['i'], 's': at(it['s']), 'e': at(it['e']), 'os': it['s'], 'oe': it['e'], 'k': k})
+    return out
+
+
+def compact_audio(audio, table, sr=SR):
+
+    import numpy as np
+    if not table:
+        return audio[:0]
+    return np.ascontiguousarray(np.concatenate([audio[int(round(a * sr)):int(round(b * sr))] for a, b, _ in table]))
+
+
 def whole(engine, audio, isl, a, prompt):
 
     dur = len(audio) / SR
-    pieces = chunks_of(isl, getattr(a, 'chunk', CHUNK) or CHUNK)
+    table = spans_of(isl, dur)
+    if not table:
+        return
+    comp = compact_audio(audio, table)
+    cdur = len(comp) / SR
+    cisl = compact_islands(isl, table)
+    pieces = chunks_of(cisl, getattr(a, 'chunk', CHUNK) or CHUNK)
     context = prompt
     for n, piece in enumerate(pieces):
         t0 = time.time()
-        sub = [isl[k] for k in piece]
+        sub = [cisl[k] for k in piece]
         a0 = max(0.0, min(it['s'] for it in sub) - CLIP_PAD)
-        b0 = min(dur, max(it['e'] for it in sub) + CLIP_PAD)
-        seg = audio[int(round(a0 * SR)):int(round(b0 * SR))]
+        b0 = min(cdur, max(it['e'] for it in sub) + CLIP_PAD)
+        seg = comp[int(round(a0 * SR)):int(round(b0 * SR))]
         rel = [{'s': it['s'] - a0, 'e': it['e'] - a0} for it in sub]
         try:
             res = engine.transcribe(seg, a.language, context, clip_timestamps=clips_of(rel, len(seg) / SR),
@@ -300,14 +402,17 @@ def whole(engine, audio, isl, a, prompt):
                 k = owner((ws + we) / 2, sub)
                 if k is None:
                     continue
-                per[k].append({'t': t, 's': round(ws, 4), 'e': round(we, 4), 'p': round(float(w.get('probability', 0)), 3)})
+                sk = sub[k]['k']
+                per[k].append({'t': t, 's': round(to_recording(ws, table, sk), 4), 'e': round(to_recording(we, table, sk), 4),
+                               'p': round(float(w.get('probability', 0)), 3)})
 
         context = carry(heard, context)
         free_cache()
         sec = round(time.time() - t0, 2)
         for j, it in enumerate(sub):
-            out({'i': it['i'], 'a': round(max(0.0, it['s'] - PAD), 4), 'words': per[j], 'text': ' '.join(x['t'] for x in per[j]),
-                 'sec': sec if j == 0 else 0, **({'chunk': n + 1, 'of': len(pieces)} if j == 0 else {})})
+            first = {'chunk': n + 1, 'of': len(pieces), 'upto': round(b0, 2), 'compact': round(cdur, 2)} if j == 0 else {}
+            out({'i': it['i'], 'a': round(max(0.0, it['os'] - PAD), 4), 'words': per[j], 'text': ' '.join(x['t'] for x in per[j]),
+                 'sec': sec if j == 0 else 0, **first})
 
 
 if __name__ == '__main__':

@@ -74,7 +74,7 @@ if [ "$WIN" = 1 ] && [ -f "$COMMON" ] && ! grep -q $'\r' "$COMMON"; then
       mkdir -p "$(dirname "$new")" 2>/dev/null || true
       if [ "$one_drive" = 1 ]; then mv "$old" "$new" 2>/dev/null || ok=0
       elif copy_in "$old" "$new"; then
-        mv "$old" "$TRASH/video-edit قديم $STAMP" 2>/dev/null && done_line="$done_line، والمجلد القديم في $BIN"
+        mv "$old" "$TRASH/video-edit قديم $STAMP" 2>/dev/null && done_line="${done_line}، والمجلد القديم في $BIN"
       else ok=0; fi
       # إعدادات الاستوديو تحفظ مساراته كاملة (المشاريع، المعتمدة، التصوير): اللي تحت المجلد القديم تصير تحت الجديد
       if [ "$ok" = 1 ] && [ -f "$new/studio/home/prefs.json" ] && command -v node >/dev/null 2>&1; then
@@ -99,7 +99,7 @@ const t=fs.readFileSync(f,"utf8").replace(/^\uFEFF/,"");fs.writeFileSync(f,JSON.
       done
       # قرص ثاني: المشاريع انتسخت، فالقديم كله لمجلد النسخ القديمة (نفس القرص: باقيه أدوات ونسخة الاستوديو القديمة، يبقى مكانه)
       if [ "$ok" = 1 ] && [ "$one_drive" = 0 ]; then
-        mv "$old" "$TRASH/video-edit قديم $STAMP" 2>/dev/null && done_line="$done_line، والمجلد القديم في $BIN"
+        mv "$old" "$TRASH/video-edit قديم $STAMP" 2>/dev/null && done_line="${done_line}، والمجلد القديم في $BIN"
       fi
     fi
     if [ "$ok" = 1 ]; then echo "$done_line"

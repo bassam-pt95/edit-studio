@@ -10,6 +10,7 @@ setSpineTf: {ids, tf:{s?, x?, y?}, per?:{id: tf}}: punch-in of the main video (a
 slip: [slip] {ids, delta}: each clip or item keeps its place and its length on the timeline and shows another part of its footage: `in` moves by `delta` whole frames (source in and out move together), frame-aligned like every other op, clamped by slipRoom. Connected
 trimSpine: {id, edge:'L'|'R', delta} ripple trim. L: in = alignIn(in + delta·FD), dur −= delta (in ≥ 0, dur ≥ 1). R: dur += delta, capped by the media end. Extra result field [add] `limit: {edge, key}` at a media limit.
 clearWordStyles: {ids?}: remove per-word overrides; no ids = every word.
+joinWords: {ids, t}: words in a row of one sentence become one word «t» over their time (the first word's start to the last's end; the first keeps its id, keyword mark and style, the rest go). A number said in several words written as digits («أربع وأربعين» → «44», 2026-
 mergeSentence: {wordId}: merge the word's sentence into the previous sentence of the same asset (e = later e, `en` joined).
 moveWords: {ids, dSec}: the selected words move as one block (trim-start-captions: a slide, as in an editor). Speech words touch their neighbours (no gap), so the unselected word next to the block gives way: the one ahead gets shorter (never below one frame, never overla
 removeWords: {ids}: delete words from the captions only (audio untouched); sentences left with no words go too.
@@ -22,6 +23,7 @@ setKeywordStyle: {patch}: keyword style (color, scale, pill).
 setKeywordStyleAll: {patch}: «كل الكابشن» for the keywords: setKeywordStyle, and a keyword word's own color (patch.color) or own size (patch.scale) taken off, so every keyword takes the change. One step.
 setSentenceEn: {id, en}: the English line of a sentence (empty removes it).
 setSentenceWords: {id, words:[{t, s, e, id?, p?}]}: a sentence's caption written again, word by word, in source seconds («عدّل الجملة»): words added, dropped or changed, the video untouched. A word given an `id` of this sentence keeps that word (its keyword mark, style, line br
+setSentencesEn: {lines: [{id, en}]}: the English lines of many sentences at once (one undo step: «ترجم الكابشن»).
 setWordFlags: {ids, k?, br?, hidden?}: true / false, or 'toggle' (all set → clear all; else set all). H uses k:'toggle'.
 setWordStyle: {ids, patch}: merge into `st` (font, weight, size, color); null deletes a key; an empty `st` is removed.
 setWordText: {id, t}. The caller coalesces under `text:<id>` (800 ms idle). Empty text is refused.

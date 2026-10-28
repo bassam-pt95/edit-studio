@@ -77,7 +77,7 @@ if [ $INSTALL -eq 0 ]; then
   elif ! "$NODE" "$APP/studio/start.mjs" --check >/dev/null 2>&1; then TODO+=("إعادة تثبيت الاستوديو (ملفاته معدّلة)"); fi
   [ $WITH_PY -eq 1 ] && ! py_ok && TODO+=("أدوات تنظيف الصوت ومشاهد الرسم (~550 ميقا، تنزل من الإنترنت)")
   [ "$OS" = win ] && [ $WITH_PY -eq 1 ] && ! yam_ok && TODO+=("مصنف الاصوات (~15 ميقا)")
-  [ $WITH_APP -eq 1 ] && [ ! -e "$(desktop_dir)/$APP_NAME.$DESK_EXT" ] && TODO+=("تطبيق «$APP_NAME» على سطح المكتب")
+  [ $WITH_APP -eq 1 ] && [ ! -e "$(desktop_dir)/$APP_NAME.$DESK_EXT" ] && TODO+=("تطبيق «${APP_NAME}» على سطح المكتب")
   if [ ${#TODO[@]} -eq 0 ]; then echo "✅ الاستوديو مثبّت وجاهز (النسخة $PKG_VER)."; exit 0; fi
   echo "المطلوب:"; for t in "${TODO[@]}"; do echo "  • $t"; done
   echo "للتثبيت: bash \"$0\" --install"

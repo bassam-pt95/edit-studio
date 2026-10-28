@@ -40,7 +40,7 @@ command -v ffprobe >/dev/null 2>&1 && ok "ffprobe" || bad "ffprobe غير موج
 if [ "$OS" = win ] && GQ="$(nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv,noheader 2>/dev/null </dev/null)" && [ -n "$GQ" ]; then
   IFS=, read -r GN GD GC <<< "$(printf '%s\n' "$GQ" | head -1 | tr -d '\r')"
   GD="${GD# }"; GC="${GC# }"
-  ok "كرت الشاشة: $GN (تعريف $GD، CUDA $GC)"
+  ok "كرت الشاشة: $GN (تعريف ${GD}، CUDA $GC)"
   [ "${GD%%.*}" -lt 580 ] 2>/dev/null && warn "تعريف NVIDIA $GD قديم: حدثه لـ580 او احدث"
   if command -v ffmpeg >/dev/null 2>&1; then
     if ffmpeg -hide_banner -v error -f lavfi -i color=c=black:s=1280x720:d=0.2 -c:v h264_nvenc -f null - </dev/null >/dev/null 2>&1; then ok "ffmpeg يرمز بكرت الشاشة (NVENC)"
@@ -110,7 +110,7 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
       if [ -z "$NDEV" ]; then warn "تعذر فحص التفريغ على كرت الشاشة"
       else
         [ "${AVV%%.*}" -ge 15 ] 2>/dev/null && bad "PyAV $AVV لا يناسب faster-whisper: شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
-        if [ "$NDEV" -gt 0 ] && [ "$F16" = 1 ] && [ "$CUB" != - ] && [ "$CUBOK" = 1 ]; then ok "التفريغ على كرت الشاشة (ctranslate2 $CTV، PyAV $AVV، cuBLAS موجود)"
+        if [ "$NDEV" -gt 0 ] && [ "$F16" = 1 ] && [ "$CUB" != - ] && [ "$CUBOK" = 1 ]; then ok "التفريغ على كرت الشاشة (ctranslate2 ${CTV}، PyAV ${AVV}، cuBLAS موجود)"
         elif [ "$NDEV" -gt 0 ] && [ "$F16" = 1 ] && [ "$CUB" != - ]; then warn "cuBLAS موجود بس ما اشتغل على الكرت: حدث تعريف NVIDIA او شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
         elif [ "$NDEV" -gt 0 ] && [ "$F16" = 1 ]; then warn "كرت NVIDIA بدون cuBLAS 12: التفريغ على المعالج (ابطا). الحل: شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
         else warn "التفريغ على المعالج (ابطا): ما فيه كرت NVIDIA يشتغل معه (ctranslate2 $CTV)"; fi

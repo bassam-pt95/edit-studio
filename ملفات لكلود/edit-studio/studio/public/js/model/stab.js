@@ -1,0 +1,1 @@
+function A(r,s,h){if(!r||!Array.isArray(r.d)||!r.d.length||!h)return null;const w=Math.max(0,Math.min(r.d.length-1,Math.round((s-(r.t0||0))*(r.fps||30)))),[f=0,m=0,d=0]=r.d[w]||[],i=Number.isFinite(r.s)&&r.s>=1?r.s:1,u=h.x+h.w/2+f*h.w,l=h.y+h.h/2+m*h.h,x=h.w*i,y=h.h*i;return{content:{...h,x:u-x/2,y:l-y/2,w:x,h:y},rot:d?{a:d,cx:u,cy:l}:null}}export{A as stabAt};

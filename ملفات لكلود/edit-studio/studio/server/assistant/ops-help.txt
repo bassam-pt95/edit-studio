@@ -6,9 +6,11 @@ insertSpine: {asset, f, in?, dur?}: split at f when inside a clip, then insert a
 joinSpine: [join] {a, b}: a through cut goes away: a takes b's length, b leaves, what hung on b hangs on a (anchors are source time, so nothing moves), a transition on the cut after b now follows a. Anything else returns the same project.
 moveSpine: {id, toIndex}: reorder (toIndex = position in the resulting list); connected items follow.
 remove: {ids}: spine clips ripple out with their connected items (toast toast.deletedWithAbove {n}); attached items go; word ids/keys leave the captions only; 'watermark' hides the watermark (on:false). One step for a mixed selection. [add] §32.6 a detached voice is n
+removeWithWords: [delete-asks] {ids}: remove these storyline clips and the words and sentences of the footage they leave unused.
 resetBounds: {id}: in and dur back to `orig`.
 rollSpine: [roll] {a, b, delta}: move the cut between spine neighbours a and b by `delta` whole frames, clamped by rollRoom: a's end and b's start move together, so nothing after the cut moves and the total length stays. Built from the two ripple trims (a's end, then b's
 setSpineTf: {ids, tf:{s?, x?, y?}, per?:{id: tf}}: punch-in of the main video (absolute values; missing keys keep theirs; `per` gives a clip its own values, e.g. «وسّط الوجه», in one history step).
+setStab: [stab] {id, stab|null}: the steadying curve of a storyline clip (model/stab.js), or none.
 slideSpine: [slide] {id, delta}: the clip keeps its footage and its length and moves `delta` frames along the storyline between its neighbours; the one before grows by delta, the one after shrinks by it; the total stays. Clamped by slideRoom.
 slip: [slip] {ids, delta}: each clip or item keeps its place and its length on the timeline and shows another part of its footage: `in` moves by `delta` whole frames (source in and out move together), frame-aligned like every other op, clamped by slipRoom. Connected
 trimSpine: {id, edge:'L'|'R', delta} ripple trim. L: in = alignIn(in + delta·FD), dur −= delta (in ≥ 0, dur ≥ 1). R: dur += delta, capped by the media end. Extra result field [add] `limit: {edge, key}` at a media limit.

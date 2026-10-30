@@ -7,6 +7,9 @@ import cv2
 import numpy as np
 
 
+STEADY_PX = 0.6
+
+
 def main():
     src, t0, t1 = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
     cap = cv2.VideoCapture(src)
@@ -56,7 +59,9 @@ def main():
     d = [[round(c[0] / w, 5), round(c[1] / h, 5), round(math.degrees(c[2]), 4)] for c in corr]
     need = max(max(abs(x[0]) for x in d) * 2, max(abs(x[1]) for x in d) * 2) + max(abs(x[2]) for x in d) * math.pi / 180
     s = round(min(1.15, 1.0 + need + 0.01), 4)
-    print(json.dumps({"t0": t0, "fps": fps, "s": s, "d": d, "n": len(d)}))
+
+    shake = float(np.mean([math.hypot(m[0], m[1]) for m in moves[1:]])) if len(moves) > 1 else 0.0
+    print(json.dumps({"t0": t0, "fps": fps, "s": s, "d": d, "n": len(d), "shake": round(shake, 3), "steady": shake < STEADY_PX}))
     return 0
 
 

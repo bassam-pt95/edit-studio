@@ -39,7 +39,8 @@ jobs:
           echo "setup exit $rc"
       - name: everything came with it — the montage skill's Python, its transcriber, the model on the disk
         run: |
-          MPY="$(ls "$HOME/Documents/video-edit/tools/py/Scripts/python.exe" /c/EditStudio/tools/py/Scripts/python.exe 2>/dev/null | head -1)"
+          # (the first of the two places that has it: ls of a missing one fails the step under pipefail)
+          MPY=""; for c in "$HOME/Documents/video-edit/tools/py/Scripts/python.exe" /c/EditStudio/tools/py/Scripts/python.exe; do [ -x "$c" ] && { MPY="$c"; break; }; done
           echo "montage python: $MPY"
           [ -n "$MPY" ]
           "$MPY" -c "import faster_whisper, av; print('faster-whisper', faster_whisper.__version__, 'PyAV', av.__version__)"
@@ -132,7 +133,7 @@ jobs:
           echo '[{"i": 0, "s": 0.0, "e": 3.5}]' > "$HOME/isl.json"
           export HF_HOME="$HOME/hf-empty" HF_HUB_CACHE="$HOME/hf-empty/hub" PYTHONUTF8=1 PYTHONIOENCODING=utf-8
           "$FPY" "$D/app/studio/tools/np/transcribe.py" "$(cygpath -w "$HOME/say48.wav")" "$(cygpath -w "$HOME/isl.json")" --model mlx-community/whisper-tiny-mlx --language en --ffmpeg ffmpeg > tr.jsonl
-          grep -c '"model"' tr.jsonl
+          grep -c '"model"' tr.jsonl || true
           tail -1 tr.jsonl | cut -c1-300
           PYTHONIOENCODING=utf-8 python -c "import json; L=[json.loads(x) for x in open('tr.jsonl', encoding='utf-8') if x.strip()]; assert any('model' in x for x in L), 'the model was not fetched'; w=[x for x in L if 'words' in x]; assert w and w[-1]['words'], L[-1]; print('words:', ' '.join(x['t'] for x in w[-1]['words']))"
       - name: transcription with the model the install brought (large-v3 on this machine's processor)

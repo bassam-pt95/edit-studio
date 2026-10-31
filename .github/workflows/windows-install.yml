@@ -72,6 +72,39 @@ jobs:
           test "${N:-0}" -ge 1
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
           taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
+      - name: «مقطع جديد» on Windows (1.0.14) — the page offers it, and a clip opens from a video
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          # the page's own rule offers it on Windows (it was left hidden there before 1.0.14)
+          curl -s -m 30 -o main.js "${URL}js/main.js"
+          grep -q "win32" main.js
+          ffmpeg -nostdin -v error -y -f lavfi -i testsrc2=size=360x640:rate=30:duration=6 -f lavfi -i "sine=f=220:d=6" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/clip-test.mp4"
+          VIDEO="$(cygpath -w "$HOME/clip-test.mp4")" URL="$URL" python - <<'PY'
+          import json, os, time, urllib.parse, urllib.request
+          url, video = os.environ['URL'], os.environ['VIDEO']
+          def call(path, body=None):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.status, json.loads(r.read().decode('utf-8'))
+          st, j = call('api/raw/start', {'path': video, 'name': 'تجربة ويندوز', 'mode': 'manual', 'face': 'none'})
+          print('start', st, j)
+          assert st == 202 and j.get('folder')
+          folder = j['folder']
+          for _ in range(120):
+              st, lst = call('api/projects')
+              e = next((p for p in lst.get('projects', []) if p.get('folder') == folder), None)
+              if e and e.get('status') != 'preparing' and e.get('phase') != 'running':
+                  print('ready', e.get('status'), e.get('phase'))
+                  break
+              time.sleep(1)
+          else:
+              raise SystemExit('the new clip never got ready: ' + json.dumps(e, ensure_ascii=False))
+          st, pr = call('x/' + urllib.parse.quote(folder) + '/api/project')
+          assert st == 200 and pr['project']['spine'], pr
+          print('opened', len(pr['project']['spine']), 'clip(s)')
+          PY
       - name: desktop shortcut
         shell: pwsh
         run: |

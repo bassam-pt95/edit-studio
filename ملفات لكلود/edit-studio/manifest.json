@@ -1,7 +1,7 @@
 {
  "name": "edit-studio",
  "title": "B Studio",
- "version": "1.0.13",
+ "version": "1.0.14",
  "built": "2026-10-31",
  "files": {
   "studio/public/css/assistant.css": "2574bf1a2b3b219c7e10abf9dc0d026c534c54f836cb8d59474f34b9f78ec373",
@@ -65,7 +65,7 @@
   "studio/public/js/i18n/ar.js": "f40f649ffa46a44ff6dba6a72cd034b01f7bb49f3ccf93ae545924b74d6df750",
   "studio/public/js/i18n/en.js": "2e567157f421c90fce1d35ab45ff56983c0ef431451cf79133f4e1cdcd2440dc",
   "studio/public/js/i18n/win.js": "e1edf70b97f7b8cf7bee968a424f49dc8a84d9f1e4d59896f7d2994a3c9e54d7",
-  "studio/public/js/main.js": "1bb82e5451cc4957efb3a8f057987f824cd8a2c6bc181852057e9b3dfff40a97",
+  "studio/public/js/main.js": "a41e230280c77bad7c403058fdd9f18ec53d231d1e176fa957ce4a5fa21cd4cf",
   "studio/public/js/model/audio.js": "22022bb9f4454c1a7631b84e537fa9e4d916c63148b08a29e28f73b8db16aa63",
   "studio/public/js/model/backgrounds.js": "33ddfd5739f2411ab58d1bf0a1a8d4b1b000659921438b6daf1659126d32d579",
   "studio/public/js/model/chat-model.js": "2d8644c9a2ffaca7f83c9259cbcb7f3ddea4888a9365cd2852a157d834a7f888",

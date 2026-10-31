@@ -104,7 +104,7 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
   fi
   if "$PYBIN" -c "import $STT_MOD" 2>/dev/null; then
     if [ -d "$HFHUB/models--mlx-community--whisper-large-v3-mlx" ] || [ -d "$HFHUB/models--Systran--faster-whisper-large-v3" ]; then ok "Python $PV مع أداة التفريغ ونموذجها"
-    else ok "Python $PV مع أداة التفريغ"; warn "نموذج التفريغ يُنزَّل أول مرة (~3 غيغابايت)"; fi
+    else ok "Python $PV مع أداة التفريغ"; warn "نموذج التفريغ مو منزّل (~3 غيغابايت): ينزل مع setup.sh --install، أو الاستوديو ينزّله بنفسه أول تفريغ"; fi
     if [ "$OS" = win ]; then
       read -r AVV CTV NDEV F16 CUBOK CUB <<< "$(stt_probe 2>/dev/null | tr -d '\r')"
       if [ -z "$NDEV" ]; then warn "تعذر فحص التفريغ على كرت الشاشة"

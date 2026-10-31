@@ -8,7 +8,7 @@ permissions:
 jobs:
   install:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26
+      # (a follower's machine gets Python 3.12 from winget through 00_setup.sh; the runner has no winget)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: ffmpeg
         shell: pwsh
         run: choco install ffmpeg -y --no-progress
@@ -27,9 +31,21 @@ jobs:
         run: bash "ملفات لكلود/install.sh"
       - name: setup check (before)
         run: bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" || echo "check exit $?"
-      - name: setup install (with the studio Python and its sound tools, about 550 MB)
-        # آخره تقرير التشخيص، وهو يطلع 1 هنا لأن أداة التفريغ (من تجهيز مهارة المونتاج) مو على جهاز التجربة
-        run: bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install || echo "setup exit $?"
+      - name: setup install, everything at once (1.0.16) — the montage tools, the studio, its sound tools, the transcription model
+        # 11: tools just installed that this shell cannot see (on a follower's machine: Claude closed and opened); once more
+        run: |
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?
+          if [ $rc -eq 11 ]; then bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?; fi
+          echo "setup exit $rc"
+      - name: everything came with it — the montage skill's Python, its transcriber, the model on the disk
+        run: |
+          MPY="$(ls "$HOME/Documents/video-edit/tools/py/Scripts/python.exe" /c/EditStudio/tools/py/Scripts/python.exe 2>/dev/null | head -1)"
+          echo "montage python: $MPY"
+          [ -n "$MPY" ]
+          "$MPY" -c "import faster_whisper, av; print('faster-whisper', faster_whisper.__version__, 'PyAV', av.__version__)"
+          "$MPY" "$HOME/Documents/video-edit/studio/app/studio/tools/np/model_fetch.py" --has && echo "the model is there"
+          echo "$MPY" > "$HOME/mpy.txt"
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh"
       - name: the noise cleaner for real (DPDFNet in the studio Python, the model from the package)
         run: |
           D="$HOME/Documents/video-edit/studio"
@@ -105,6 +121,28 @@ jobs:
           assert st == 200 and pr['project']['spine'], pr
           print('opened', len(pr['project']['spine']), 'clip(s)')
           PY
+      - name: transcription on a machine with no model (1.0.16) — the studio fetches it itself, then the words come
+        # a follower who only used the studio had no model and every transcription failed: the montage skill's Python,
+        # an empty model cache, a sentence Windows says itself
+        run: |
+          D="$HOME/Documents/video-edit/studio"
+          FPY="$(cat "$HOME/mpy.txt")"
+          powershell -NoProfile -Command "Add-Type -AssemblyName System.Speech; \$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \$s.SetOutputToWaveFile('$(cygpath -w "$HOME/say.wav")'); \$s.Speak('Hello, this is a test of the studio on Windows.'); \$s.Dispose()"
+          ffmpeg -nostdin -v error -y -i "$HOME/say.wav" -ar 48000 -c:a pcm_s24le "$HOME/say48.wav"
+          echo '[{"i": 0, "s": 0.0, "e": 3.5}]' > "$HOME/isl.json"
+          export HF_HOME="$HOME/hf-empty" HF_HUB_CACHE="$HOME/hf-empty/hub" PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+          "$FPY" "$D/app/studio/tools/np/transcribe.py" "$(cygpath -w "$HOME/say48.wav")" "$(cygpath -w "$HOME/isl.json")" --model mlx-community/whisper-tiny-mlx --language en --ffmpeg ffmpeg > tr.jsonl
+          grep -c '"model"' tr.jsonl
+          tail -1 tr.jsonl | cut -c1-300
+          PYTHONIOENCODING=utf-8 python -c "import json; L=[json.loads(x) for x in open('tr.jsonl', encoding='utf-8') if x.strip()]; assert any('model' in x for x in L), 'the model was not fetched'; w=[x for x in L if 'words' in x]; assert w and w[-1]['words'], L[-1]; print('words:', ' '.join(x['t'] for x in w[-1]['words']))"
+      - name: transcription with the model the install brought (large-v3 on this machine's processor)
+        run: |
+          D="$HOME/Documents/video-edit/studio"
+          FPY="$(cat "$HOME/mpy.txt")"
+          export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+          "$FPY" "$D/app/studio/tools/np/transcribe.py" "$(cygpath -w "$HOME/say48.wav")" "$(cygpath -w "$HOME/isl.json")" --language en --ffmpeg ffmpeg > tr2.jsonl
+          tail -1 tr2.jsonl | cut -c1-300
+          PYTHONIOENCODING=utf-8 python -c "import json; L=[json.loads(x) for x in open('tr2.jsonl', encoding='utf-8') if x.strip()]; assert not any('model' in x for x in L), 'downloaded again'; w=[x for x in L if 'words' in x]; assert w and w[-1]['words'], L[-1]; print('words:', ' '.join(x['t'] for x in w[-1]['words']))"
       - name: desktop shortcut
         shell: pwsh
         run: |

@@ -140,6 +140,13 @@ def main():
     if engine is None:
         out({'error': why})
         return
+
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import model_fetch
+    why = model_fetch.ensure(engine.name, a.model, out)
+    if why:
+        out({'error': why})
+        return
     if engine.name == 'faster-whisper':
         try:
             engine.load()

@@ -99,6 +99,13 @@ def main():
         except Exception as e2:
             out({'error': 'mlx_whisper is not available: %s; faster_whisper is not available: %s' % (e1, e2)})
             return
+
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import model_fetch
+    why = model_fetch.ensure('mlx' if mlx_whisper is not None else 'faster-whisper', a.model, out)
+    if why:
+        out({'error': why})
+        return
     prompt = None
     if a.prompt_file:
         try:

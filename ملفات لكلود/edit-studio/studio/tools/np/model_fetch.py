@@ -5,6 +5,10 @@ import os, sys, json, time, threading, subprocess
 FW_FILES = ['config.json', 'preprocessor_config.json', 'model.bin', 'tokenizer.json', 'vocabulary.*']
 
 
+FW_NEEDS = [['config.json'], ['model.bin'], ['tokenizer.json'], ['vocabulary.*']]
+MLX_NEEDS = [['config.json'], ['weights.safetensors', 'weights.npz']]
+
+
 def fw_name(repo):
     n = repo.split('/')[-1]
     if n.startswith('whisper-'):
@@ -28,12 +32,17 @@ def repo_of(engine, model):
 
 
 def cached(repo, patterns):
+
+    from glob import glob
     try:
         from huggingface_hub import snapshot_download
-        snapshot_download(repo, allow_patterns=patterns, local_files_only=True)
-        return True
+        snap = snapshot_download(repo, allow_patterns=patterns, local_files_only=True)
     except Exception:
         return False
+
+    def has(pat):
+        return any(os.path.isfile(f) and os.path.getsize(f) > 0 for f in glob(os.path.join(snap, pat)))
+    return all(any(has(p) for p in group) for group in (FW_NEEDS if patterns else MLX_NEEDS))
 
 
 def ensure(engine, model, out):
@@ -48,23 +57,51 @@ def ensure(engine, model, out):
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
     except Exception as e:
         return 'could not start the download: %s' % e
-    why = None
-    for line in p.stdout:
-        try:
-            m = json.loads(line)
-        except Exception:
-            continue
-        if 'error' in m:
-            why = m['error']
-        elif 'got' in m:
-            out({'model': {'repo': repo, 'got': m['got'], 'of': m['of']}})
-    err = p.stderr.read()
-    p.wait()
-    if p.returncode != 0 and not why:
-        why = (err.strip().splitlines() or ['exit %s' % p.returncode])[-1][:300]
+    why = _follow(p, lambda m: out({'model': {'repo': repo, 'got': m['got'], 'of': m['of']}}))
     if why:
         return 'the transcription model %s could not be downloaded: %s' % (repo, why)
     return None if cached(repo, patterns) else 'the transcription model %s is still not on this machine' % repo
+
+
+def _follow(p, progress, stall=None):
+
+    from collections import deque
+    import queue
+    stall = stall or float(os.environ.get('MOHRER_MODEL_STALL') or 300)
+    tail, lines = deque(maxlen=40), queue.Queue()
+    threading.Thread(target=lambda: [tail.append(l) for l in p.stderr], daemon=True).start()
+
+    def read():
+        for l in p.stdout:
+            lines.put(l)
+        lines.put(None)
+    threading.Thread(target=read, daemon=True).start()
+    why, best, moved = None, -1, time.time()
+    while True:
+        try:
+            line = lines.get(timeout=1.0)
+        except queue.Empty:
+            line = ''
+        if line is None:
+            break
+        try:
+            m = json.loads(line) if line else {}
+        except Exception:
+            m = {}
+        if 'error' in m:
+            why = m['error']
+        elif 'got' in m:
+            if m['got'] > best:
+                best, moved = m['got'], time.time()
+            progress(m)
+        if time.time() - moved > stall:
+            p.kill()
+            p.wait()
+            return 'no progress for %d s (the connection?)' % stall
+    p.wait()
+    if p.returncode != 0 and not why:
+        why = (''.join(tail).strip().splitlines() or ['exit %s' % p.returncode])[-1][:300]
+    return why
 
 
 def _size(d):

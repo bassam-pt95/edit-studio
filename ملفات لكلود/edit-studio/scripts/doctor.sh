@@ -53,9 +53,8 @@ fi
 STT_MOD=mlx_whisper; [ "$OS" = win ] && STT_MOD=faster_whisper
 [ "$OS" = win ] && resolve_pybin   # ويندوز: بايثون venv المونتاج، والا بايثون حقيقي (مو اختصار المتجر)
 [ "$OS" = win ] && [ -z "$PYBIN" ] && path_again && resolve_pybin
-# مجلد نماذج التفريغ. ويندوز: بايثون ياخذه من HF_HOME، والا من مجلد المستخدم (USERPROFILE، مو HOME حق bash)
-HFHUB="$HOME/.cache/huggingface/hub"
-[ "$OS" = win ] && HFHUB="$(cygpath -u "${HF_HOME:-${USERPROFILE:-$HOME}/.cache/huggingface}")/hub"
+# فاحص نموذج التفريغ: جنب الاستوديو بالحزمة وبعد التثبيت، ومن المستودع بـv2/tools
+FETCH="$PKG_DIR/studio/tools/np/model_fetch.py"; [ -f "$FETCH" ] || FETCH="$PKG_DIR/../../tools/np/model_fetch.py"
 # ويندوز: التفريغ على كرت NVIDIA يحتاج cuBLAS 12 (ctranslate2 ما يجيبه)، وfaster-whisper 1.2 ما يشتغل مع PyAV 15 واحدث.
 # بايثون لحاله (لو طاح بسبب DLL ما يطيح التقرير)، ومجلدات nvidia/*/bin قبل البحث مثل التفريغ نفسه (_whisper.py بمهارة المونتاج).
 # يطبع: نسخة PyAV، نسخة ctranslate2، عدد كروت CUDA، 1 لو الكرت يدعم float16، 1 لو cuBLAS يشتغل على الكرت، مكان cuBLAS (او -).
@@ -103,7 +102,9 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
     bad "Python $PV نسخة ARM64: كاشف الوجه والتفريغ ما ينركبون عليه. ركب Python 3.12 نسخة x64 وبعدها شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
   fi
   if "$PYBIN" -c "import $STT_MOD" 2>/dev/null; then
-    if [ -d "$HFHUB/models--mlx-community--whisper-large-v3-mlx" ] || [ -d "$HFHUB/models--Systran--faster-whisper-large-v3" ]; then ok "Python $PV مع أداة التفريغ ونموذجها"
+    # النموذج بنفس فحص الاستوديو والتثبيت (model_fetch.py --has: محرك هالبايثون وملفاته كاملة)، مو اسم المجلد: تنزيل انقطع يخلي مجلد فاضي
+    MODEL_OK=0; "$PYBIN" "$FETCH" --has </dev/null >/dev/null 2>&1 && MODEL_OK=1
+    if [ $MODEL_OK = 1 ]; then ok "Python $PV مع أداة التفريغ ونموذجها"
     else ok "Python $PV مع أداة التفريغ"; warn "نموذج التفريغ مو منزّل (~3 غيغابايت): ينزل مع setup.sh --install، أو الاستوديو ينزّله بنفسه أول تفريغ"; fi
     if [ "$OS" = win ]; then
       read -r AVV CTV NDEV F16 CUBOK CUB <<< "$(stt_probe 2>/dev/null | tr -d '\r')"
@@ -117,7 +118,7 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
       fi
       # --deep: تفريغ تجريبي فعلي على الكرت (بايثون لحاله، مهلة دقيقتين). نموذج مو منزل او ما فيه كرت: ملاحظة بس، ما ينزل شي
       if [ "$DEEP" = 1 ]; then
-        if [ ! -d "$HFHUB/models--Systran--faster-whisper-large-v3" ]; then echo "– التفريغ التجريبي ما اشتغل: نموذج التفريغ مو منزل (الفحص ما ينزله)"
+        if [ $MODEL_OK != 1 ]; then echo "– التفريغ التجريبي ما اشتغل: نموذج التفريغ مو منزل (الفحص ما ينزله)"
         elif ! [ "${NDEV:-0}" -gt 0 ] 2>/dev/null; then echo "– التفريغ التجريبي ما اشتغل: ما فيه كرت NVIDIA يشتغل مع التفريغ"
         else
           R="$(stt_probe deep 2>&1)"; RC=$?

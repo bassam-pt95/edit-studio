@@ -122,6 +122,120 @@ jobs:
           assert st == 200 and pr['project']['spine'], pr
           print('opened', len(pr['project']['spine']), 'clip(s)')
           PY
+      - name: the file window in front, and a press after it never stuck (1.0.17) — a follower had «نافذة اختيار الملف مفتوحة» and no window
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          # the studio's own window in front, as he has it when he presses «مقطع جديد»
+          bash -c ". '$S/_common.sh'; open_url '$URL'"
+          sleep 10
+          # Git's bash by its path (a bare «bash» from Python may be WSL's in System32)
+          BASH_EXE="$(cygpath -w "$(command -v bash)")" URL="$URL" S="$S" PYTHONIOENCODING=utf-8 python - <<'PY'
+          import ctypes, ctypes.wintypes as W, json, os, subprocess, threading, time, urllib.request
+          url, u = os.environ['URL'], ctypes.windll.user32
+          u.GetWindowLongW.restype = ctypes.c_long
+          TITLE = 'Choose the videos'                      # the window's title for {lang: en, multiple: true}
+          def press():
+              out = {}
+              def go():
+                  req = urllib.request.Request(url + 'api/raw/pick', data=b'{"lang":"en","multiple":true}', headers={'content-type': 'application/json'}, method='POST')
+                  with urllib.request.urlopen(req, timeout=300) as r:
+                      out['status'], out['body'] = r.status, json.loads(r.read().decode('utf-8'))
+              th = threading.Thread(target=go, daemon=True); th.start()
+              return th, out
+          def shown():                                     # every visible top window, top to bottom: (hwnd, title, pid)
+              found = []
+              @ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+              def cb(h, _):
+                  if u.IsWindowVisible(h):
+                      n = u.GetWindowTextLengthW(h); b = ctypes.create_unicode_buffer(n + 1); u.GetWindowTextW(h, b, n + 1)
+                      pid = W.DWORD(); u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+                      found.append((h, b.value, pid.value))
+                  return True
+              u.EnumWindows(cb, 0)
+              return found
+          def procs(name):
+              r = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {name}', '/FO', 'CSV', '/NH'], capture_output=True, text=True)
+              return {int(l.split('","')[1]) for l in r.stdout.splitlines() if l.startswith('"')}
+          def dialogs(ms=20000):
+              t0 = time.time()
+              while time.time() - t0 < ms / 1000:
+                  d = [w for w in shown() if w[1] == TITLE]
+                  if d: return d
+                  time.sleep(0.25)
+              raise SystemExit('no file window on the screen. Visible windows: ' + json.dumps([w[1] for w in shown()], ensure_ascii=False))
+          def above_studio(h):
+              wins = shown(); browsers = procs('chrome.exe') | procs('msedge.exe')
+              me = next(i for i, w in enumerate(wins) if w[0] == h)
+              studio = [i for i, w in enumerate(wins) if w[2] in browsers and w[1]]
+              ex = u.GetWindowLongW(h, -20)                # GWL_EXSTYLE; 0x8 = always on top
+              print('window', h, 'z', me, 'studio z', studio[:3], 'topmost', bool(ex & 0x8), 'foreground', u.GetForegroundWindow() == h)
+              assert studio, 'the studio window is not on the screen'
+              assert me < min(studio), 'the file window is behind the studio window'
+          # 1 the window shows above the studio's
+          t1, o1 = press()
+          d1 = dialogs()
+          assert len(d1) == 1, d1
+          above_studio(d1[0][0])
+          # 2 he closes the studio's window (the server goes on) and opens it again, then presses: never «مفتوحة»
+          subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], capture_output=True); subprocess.run(['taskkill', '/F', '/IM', 'msedge.exe'], capture_output=True)
+          subprocess.run([os.environ['BASH_EXE'], '-c', f". '{os.environ['S']}/_common.sh'; open_url '{url}'"]); time.sleep(10)
+          t2, o2 = press()
+          t1.join(30)
+          print('press 1 answered', o1)
+          assert o1.get('status') == 200 and o1['body'].get('replaced') is True, o1
+          time.sleep(1.5)
+          d2 = dialogs()
+          assert len(d2) == 1 and d2[0][0] != d1[0][0], ('one new window', d1, d2)
+          above_studio(d2[0][0])
+          # 3 closed: an ordinary «canceled»
+          u.PostMessageW(d2[0][0], 0x0010, 0, 0)          # WM_CLOSE
+          t2.join(30)
+          print('press 2 answered', o2)
+          assert o2.get('status') == 200 and o2['body'] == {'canceled': True}, o2
+          assert not [w for w in shown() if w[1] == TITLE], 'a file window was left on the screen'
+          PY
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
+      - name: «شكل السلسلة» on Windows (1.0.17) — a folder takes a clip's look, and a new clip in it starts from it
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          VIDEO="$(cygpath -w "$HOME/clip-test.mp4")" URL="$URL" PYTHONIOENCODING=utf-8 python - <<'PY'
+          import json, os, time, urllib.parse, urllib.request
+          url, video = os.environ['URL'], os.environ['VIDEO']
+          def call(path, body=None, method=None):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method=method or ('GET' if body is None else 'POST'))
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.status, json.loads(r.read().decode('utf-8'))
+          def ready(folder):
+              for _ in range(120):
+                  st, lst = call('api/projects')
+                  e = next((p for p in lst.get('projects', []) if p.get('folder') == folder), None)
+                  if e and e.get('status') != 'preparing' and e.get('phase') != 'running':
+                      return e
+                  time.sleep(1)
+              raise SystemExit('never ready: ' + folder)
+          st, lst = call('api/projects')
+          first = next(p for p in lst['projects'] if p.get('name') == 'تجربة ويندوز')['folder']
+          q = 'x/' + urllib.parse.quote(first) + '/api/project'
+          st, cur = call(q)
+          pj = cur['project']; pj.setdefault('captions', {}).setdefault('style', {})['active'] = '#00FF88'
+          st, saved = call(q, {'baseRev': cur['rev'], 'clientId': 'ci', 'label': 'ci', 'project': pj}, 'PUT')
+          assert st == 200, saved
+          st, fo = call('api/folders', {'name': 'سلسلة ويندوز'}); fid = fo['id']; print('folder', st, fid)
+          st, j = call('api/folders/put', {'project': first, 'folder': fid}); assert st == 200, j
+          st, j = call('api/folders/look', {'project': first}); print('look', st, json.dumps(j, ensure_ascii=False)); assert st == 200 and j.get('look'), j
+          st, j = call('api/raw/start', {'path': video, 'name': 'حلقة ثانية', 'mode': 'manual', 'face': 'none', 'folder': fid})
+          assert st == 202 and j.get('folder'), j
+          e = ready(j['folder'])
+          assert e.get('in') == fid, ('not in the folder', e)
+          st, two = call('x/' + urllib.parse.quote(j['folder']) + '/api/project')
+          got = two['project']['captions']['style'].get('active')
+          print('the new clip starts with the series look:', got)
+          assert got == '#00FF88', got
+          PY
       - name: transcription on a machine with no model (1.0.16) — the studio fetches it itself, then the words come
         # a follower who only used the studio had no model and every transcription failed: the montage skill's Python,
         # an empty model cache, a sentence Windows says itself
@@ -136,6 +250,37 @@ jobs:
           grep -c '"model"' tr.jsonl || true
           tail -1 tr.jsonl | cut -c1-300
           PYTHONIOENCODING=utf-8 python -c "import json; L=[json.loads(x) for x in open('tr.jsonl', encoding='utf-8') if x.strip()]; assert any('model' in x for x in L), 'the model was not fetched'; w=[x for x in L if 'words' in x]; assert w and w[-1]['words'], L[-1]; print('words:', ' '.join(x['t'] for x in w[-1]['words']))"
+      - name: a cut-short model download (1.0.17) — an empty snapshot is not «ready», it completes, the doctor says so, and a chatty child does not hang the fetch
+        # Astra's review of 1.0.16 (1, 4): refs/main and an empty snapshot passed as the model; ensure() read the child's
+        # stdout to its end before its stderr (Windows pipes are small)
+        run: |
+          D="$HOME/Documents/video-edit/studio"
+          FPY="$(cat "$HOME/mpy.txt")"
+          export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+          H40="$(printf 'a%.0s' {1..40})"
+          cut_short(){ local r="$1/hub/models--Systran--faster-whisper-$2"; mkdir -p "$r/refs" "$r/snapshots/$H40"; printf '%s' "$H40" > "$r/refs/main"; }
+          cut_short "$HOME/hf-cut" large-v3
+          HF_HOME="$HOME/hf-cut" HF_HUB_CACHE="$HOME/hf-cut/hub" bash "$D/app/scripts/doctor.sh" > doc-cut.txt || true
+          grep "التفريغ" doc-cut.txt
+          grep -q "نموذج التفريغ مو منزّل" doc-cut.txt
+          cut_short "$HOME/hf-partial" tiny
+          cd "$D/app/studio/tools/np"
+          HF_HOME="$HOME/hf-partial" HF_HUB_CACHE="$HOME/hf-partial/hub" timeout 600 "$FPY" - <<'PY'
+          import json, sys, subprocess, time, model_fetch as m
+          repo, pats = m.repo_of('faster-whisper', 'mlx-community/whisper-tiny-mlx')
+          assert not m.cached(repo, pats), 'an empty snapshot taken as ready'
+          why = m.ensure('faster-whisper', 'mlx-community/whisper-tiny-mlx', lambda o: None)
+          assert why is None and m.cached(repo, pats), why
+          print('the cut-short download completed')
+          real = subprocess.Popen
+          child = 'import sys, json\nsys.stderr.write("w" * (1 << 20)); sys.stderr.flush()\nprint(json.dumps({"got": 1, "of": 1})); print(json.dumps({"done": True}))'
+          m.subprocess = type('S', (), {'Popen': staticmethod(lambda a, **k: real([sys.executable, '-c', child], **k)), 'PIPE': subprocess.PIPE})
+          n = [0]
+          m.cached = lambda r, p: (n.__setitem__(0, n[0] + 1) or n[0] > 1)
+          t = time.time()
+          assert m.ensure('faster-whisper', 'large-v3', lambda o: None) is None
+          print('1 MiB on stderr drained in %.1f s' % (time.time() - t))
+          PY
       - name: transcription with the model the install brought (large-v3 on this machine's processor)
         run: |
           D="$HOME/Documents/video-edit/studio"

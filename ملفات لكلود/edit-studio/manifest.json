@@ -1,7 +1,7 @@
 {
  "name": "edit-studio",
  "title": "B Studio",
- "version": "1.0.17",
+ "version": "1.0.18",
  "built": "2026-11-01",
  "files": {
   "studio/public/css/assistant.css": "2574bf1a2b3b219c7e10abf9dc0d026c534c54f836cb8d59474f34b9f78ec373",
@@ -343,10 +343,11 @@
   "studio/tools/new-project.mjs": "bc6303893f21f7d79bfa13d0bd9ecee930b0dd348cacb2031f6b2717fca07e02",
   "studio/tools/notes.mjs": "e1ca0cb0fcaaa989f614535c2b63542c43b239c3eb926b1f6e1e7a0834908956",
   "studio/tools/np/core.mjs": "6597c40964373f9c5f19d5107c40619acce7811ae3fc7ea40a52815806e4f9d0",
+  "studio/tools/np/fw_device.py": "ab53ca326c0244e1572d49c78c4b0ab3e19673f2df74cac0160b58c9617d3b23",
   "studio/tools/np/islands.py": "efae542ef85797cf26224ed7d5142d2e79421b66e7f2665f8dce2cfd1a0e4559",
   "studio/tools/np/model_fetch.py": "4496bfc3ea03763095ce7348a99b34e377579a26748b28a72f0c8fc0464ee2c9",
-  "studio/tools/np/stt-worker.py": "d384c666f1033a46fc8e7ff9d18bfadd4884143f9e8e6f94b4141c1e8d43a2b7",
-  "studio/tools/np/transcribe.py": "88cf85ab0ee60df58aede118b1adf54fc4c3caab7c8d673fbcc8c532300db8d6",
+  "studio/tools/np/stt-worker.py": "674907c042efdd57c351298c516b665343b6c2d40d833b8f00f8caef268e9fb4",
+  "studio/tools/np/transcribe.py": "b0c16c641ef63fd9c5ea649ce4f1131a9af5b834db54c72c4eed126944d7203e",
   "studio/tools/old-work.mjs": "6f1e4daf84645a1126b33add143f85d27eb5ff51bcbf660cc43f1db63308beb3",
   "studio/tools/open.mjs": "db80d379081f1339ce67617b09786271d7432293ac13fb23e34c597668786cba",
   "studio/tools/redraw-remotion.mjs": "2c49e3296c77d19991e7ed4769f82983c45852bfab97b2de18086c9fe7f2613a",

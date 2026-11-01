@@ -66,7 +66,13 @@ class FwEngine:
 
     def load(self):
         if self._m is None:
-            self._m = self.cls(self.model, device='auto', compute_type='auto')
+
+
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import fw_device
+            self._m = fw_device.load(self.model, self.cls)[0]
 
     def transcribe(self, audio, language, initial_prompt, **kw):
         self.load()

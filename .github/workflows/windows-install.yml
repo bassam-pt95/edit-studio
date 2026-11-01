@@ -289,6 +289,70 @@ jobs:
           "$FPY" "$D/app/studio/tools/np/transcribe.py" "$(cygpath -w "$HOME/say48.wav")" "$(cygpath -w "$HOME/isl.json")" --language en --ffmpeg ffmpeg > tr2.jsonl
           tail -1 tr2.jsonl | cut -c1-300
           PYTHONIOENCODING=utf-8 python -c "import json; L=[json.loads(x) for x in open('tr2.jsonl', encoding='utf-8') if x.strip()]; assert not any('model' in x for x in L), 'downloaded again'; w=[x for x in L if 'words' in x]; assert w and w[-1]['words'], L[-1]; print('words:', ' '.join(x['t'] for x in w[-1]['words']))"
+      - name: the words through the studio on Windows (1.0.17) — «مقطع جديد» gives the sentences, and «فرّغ الكلام الآن» on a clip by hand gives the words
+        # followers on Windows: «ما تطلع الجمل ولا الكابشن». The steps above run the transcriber alone; this one goes the way they
+        # do, through the studio (analyze for «اختر الجمل», POST /api/cut/transcribe for the captions button), with the model the
+        # install brought. The voice is English (the machine's own), so the language is set to English for it
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          D="$HOME/Documents/video-edit/studio"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          powershell -NoProfile -Command "Add-Type -AssemblyName System.Speech; \$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \$s.Rate = -1; \$s.SetOutputToWaveFile('$(cygpath -w "$HOME/words.wav")'); \$s.Speak('Hello, this is the studio on Windows. Today we try the sentences and the captions.'); \$s.Dispose()"
+          ffmpeg -nostdin -v error -y -i "$HOME/words.wav" -f lavfi -i testsrc2=size=360x640:rate=30 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -ar 48000 "$HOME/words.mp4"
+          PYTHONIOENCODING=utf-8 python -c "import json, os; f=os.path.join(r'$(cygpath -w "$D/home")', 'prefs.json'); p=json.load(open(f, encoding='utf-8')) if os.path.exists(f) else {}; p.setdefault('transcribe', {})['language'] = 'en'; json.dump(p, open(f, 'w', encoding='utf-8'), ensure_ascii=False); print('prefs', p['transcribe'])"
+          VIDEO="$(cygpath -w "$HOME/words.mp4")" URL="$URL" PYTHONIOENCODING=utf-8 python - <<'PY'
+          import json, os, time, urllib.error, urllib.parse, urllib.request
+          url, video = os.environ['URL'], os.environ['VIDEO']
+          def call(path, body=None, timeout=60):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or '{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or '{}')
+              except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                  return 0, {'error': str(e)}
+          def cut(folder):
+              return call('x/' + urllib.parse.quote(folder) + '/api/cut')
+          def until(folder, done, what, secs):
+              t0, last, c = time.time(), 0, {}
+              while time.time() - t0 < secs:
+                  st, c = cut(folder)
+                  if st == 200 and done(c):
+                      return c
+                  if st == 200 and c.get('state') == 'stalled':
+                      raise SystemExit(f'{what}: the preparation stopped: ' + json.dumps(c, ensure_ascii=False)[:1500])
+                  if st == 200 and c.get('hearFail'):
+                      raise SystemExit(f'{what}: the hearing failed: ' + json.dumps(c, ensure_ascii=False)[:1500])
+                  if time.time() - last > 30:
+                      last = time.time(); print(f'  {what}: {int(last - t0)} s', c.get('state'), c.get('step'), c.get('pct'), flush=True)
+                  time.sleep(2)
+              raise SystemExit(f'{what}: not done in {secs} s: ' + json.dumps(c, ensure_ascii=False)[:1500])
+          def start(name, mode):
+              st, j = call('api/raw/start', {'path': video, 'name': name, 'mode': mode, 'face': 'none'})
+              print('start', mode, st, json.dumps(j, ensure_ascii=False))
+              assert st == 202 and j.get('folder'), j
+              return j['folder']
+          # 1 «مقطع جديد», the whole montage: the sentences come for «اختر الجمل»
+          t0 = time.time()
+          f1 = start('جمل ويندوز', 'full')
+          c = until(f1, lambda c: c.get('state') == 'ready', 'the sentences', 1200)
+          said = [i['text'] for i in c.get('islands', []) if i.get('text', '').strip()]
+          print(f'sentences after {int(time.time() - t0)} s:', len(said), json.dumps(said, ensure_ascii=False), '| heard', c.get('heard'))
+          assert said, 'no sentences: ' + json.dumps(c, ensure_ascii=False)[:1500]
+          # 2 by hand, then «فرّغ الكلام الآن»: the words the captions get
+          t0 = time.time()
+          f2 = start('كابشن ويندوز', 'manual')
+          until(f2, lambda c: c.get('state') == 'noWords', 'the clip by hand', 300)
+          st, j = call('x/' + urllib.parse.quote(f2) + '/api/cut/transcribe', {})
+          print('transcribe', st, j)
+          assert st == 202, j
+          c = until(f2, lambda c: c.get('state') == 'ready' and (c.get('heard') or {}).get('words', 0) > 0, 'the words', 1200)
+          said = [i['text'] for i in c.get('islands', []) if i.get('text', '').strip()]
+          print(f'words after {int(time.time() - t0)} s:', c.get('heard'), json.dumps(said, ensure_ascii=False))
+          assert (c.get('heard') or {}).get('ok') is True, c.get('heard')
+          PY
       - name: desktop shortcut
         shell: pwsh
         run: |

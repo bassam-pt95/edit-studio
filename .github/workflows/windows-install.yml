@@ -197,6 +197,73 @@ jobs:
           PY
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
           taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
+      - name: closing the window asks only when something would be lost (1.0.19) — an edit not saved asks, a saved studio closes at once
+        # a follower's suggestion: «قبل نقفل نحط تأكيد للقفل». The studio as installed, in Chrome driven by puppeteer-core, on the
+        # clip «مقطع جديد» made above: its save held, closing asks (beforeunload) and the line says what; saved, it closes at once
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          echo "browser: $B"
+          npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          cat > "$HOME/close_check.cjs" <<'JS'
+          // the close guard on this machine: the studio as installed, the clip «مقطع جديد» made above, in Chrome (puppeteer-core)
+          const pptr = require(process.env.PP);
+          const url = process.env.URL, folder = process.env.FOLDER;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          (async () => {
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close(); process.exit(1); };
+            try {
+              let page = await b.newPage();
+              await page.setViewport({ width: 1280, height: 760 });
+              await page.goto(`${url}?p=${encodeURIComponent(folder)}&test=1`, { waitUntil: 'domcontentloaded' });
+              await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 90000 });
+              let hold = true; const held = [];
+              await page.setRequestInterception(true);
+              page.on('request', (rq) => {
+                const u = new URL(rq.url());
+                if (hold && rq.method() === 'PUT' && u.pathname.endsWith('/api/project')) { held.push(rq); return; }
+                rq.continue().catch(() => {});
+              });
+              const close = async () => {
+                let asked = null;
+                const on = (d) => { asked = d.type(); d.dismiss().catch(() => {}); };
+                page.on('dialog', on);
+                await page.close({ runBeforeUnload: true });
+                await sleep(1500);
+                page.off('dialog', on);
+                return { asked, closed: page.isClosed() };
+              };
+              await page.mouse.click(640, 740);            // Chrome asks only on a page he has used
+              // an edit whose save does not reach the studio yet
+              await page.evaluate(async () => {
+                const m = window.__mohrer;
+                const { setGrade } = await import('/js/ops/color.js');
+                m.ctl.apply(setGrade, { clipIds: [m.store.state.p.spine[0].id], patch: { exposure: 0.5 } });
+              });
+              for (let i = 0; i < 50 && !held.length; i++) await sleep(100);
+              if (!held.length) return fail('the save never went out');
+              let r = await close();
+              console.log('an edit not saved:', JSON.stringify(r));
+              if (r.asked !== 'beforeunload' || r.closed) return fail('closing did not ask');
+              await sleep(500);
+              const line = await page.evaluate(() => [...document.querySelectorAll('.toast')].map((x) => x.textContent).join(' | '));
+              console.log('the line:', line);
+              if (!/لم يُحفظ/.test(line)) return fail('no line saying what');
+              hold = false;
+              for (const rq of held.splice(0)) rq.continue().catch(() => {});
+              for (let i = 0; i < 100 && (await page.evaluate(() => window.__mohrer.ctx.sync.status)) !== 'saved'; i++) await sleep(200);
+              await page.mouse.click(640, 740);
+              r = await close();
+              console.log('everything saved:', JSON.stringify(r));
+              if (r.asked !== null || !r.closed) return fail('a saved studio asked or stayed');
+              await b.close();
+              console.log('PASSED');
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" FOLDER='تجربة ويندوز' PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/close_check.cjs")"
       - name: «شكل السلسلة» on Windows (1.0.17) — a folder takes a clip's look, and a new clip in it starts from it
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"

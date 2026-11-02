@@ -16,6 +16,7 @@
    بمرات بالكلام الطويل، بس مسودة: كل قطعة بلا سياق اللي قبلها، فبعض الكلمات وحدود الجمل تختلف عن العادي.
    VEB_STT_BATCH حجم الدفعة (الافتراضي 8، اقل لو ذاكرة الكرت ما تكفي).
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os, json, time, subprocess, platform
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

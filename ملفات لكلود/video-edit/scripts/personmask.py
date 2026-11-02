@@ -9,6 +9,7 @@
 --faces-only: meta.json بس (نفسه بالضبط)، بلا قص الشخص ولا التنعيم ولا ملفات PNG — لمن يقرا صناديق الوجه بس
 يحتاج: mediapipe وopencv وnumpy، شغل bash scripts/00_setup.sh --install
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os, json
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

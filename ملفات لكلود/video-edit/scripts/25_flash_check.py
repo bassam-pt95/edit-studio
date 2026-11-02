@@ -5,6 +5,7 @@
 السبب اللي لقيناه: صورة بـbackgroundImage (CSS) — ريموشن ما ينتظر تحميلها فتطلع بيضاء إطارين
 (صارت فعلاً: ثلاث ومضات بنسخة مسلَّمة). الحل: <Img> أو Preload مخفي.
 الومضة المقصودة (فلاش كاميرا) تنكتب بـ<work>/flash_ok.json."""
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, subprocess, os, json
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

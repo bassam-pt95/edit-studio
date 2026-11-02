@@ -8,6 +8,7 @@
 #
 #   ماك بمعالج أبل (M1+) : Homebrew · ffmpeg · Node · Python · mlx-whisper · أدوات Xcode (كاشف الوجه)
 #   ماك إنتل            : نفسه، والتفريغ faster-whisper بدل mlx-whisper
+#                           ادوات بايثون (numpy والتفريغ) في venv بنسخ ثابتة: <VEB_HOME>/tools/py، مو داخل بايثون Homebrew
 #   ويندوز (Git Bash)     : winget · ffmpeg · Node · Python · faster-whisper · mediapipe (كاشف الوجه)
 #                           بايثون 3.12، وادوات بايثون في venv واحد: <VEB_HOME>/tools/py
 #   ريموشن (محرّك الرسم) نسخة وحدة لكل المقاطع (~400 ميقا مرة وحدة) بـ<VEB_HOME>/remotion-shared عبر 04b_remotion.sh engine.
@@ -103,6 +104,13 @@ PY=python3
 if ! have python3 && have python; then
   PY=python
   if [ "$OS" = win ]; then mkdir -p "$HOME/bin"; printf '#!/bin/bash\nexec python "$@"\n' > "$HOME/bin/python3"; chmod +x "$HOME/bin/python3"; export PATH="$HOME/bin:$PATH"; fi
+fi
+# ماك: numpy والتفريغ في venv خاص <VEB_HOME>/tools/py بنسخ ثابتة، مثل ويندوز (مراجعة 1.0.19، I2). قبل كانت تنحط داخل بايثون
+# Homebrew بـ--break-system-packages (مقفول على التثبيت العادي)، واول brew upgrade لبايثون يخليها وراه ويوقف التفريغ.
+# BASEPY = بايثون الجهاز اللي ينبني منه الـvenv. PY = بايثون الـvenv: الفحص عليه، ولو ما يشتغل (انشال بايثون اللي انبنى منه) ناقص.
+# السكربتات تشتغل عليه بنفسها: _venv.py يعيد تشغيل السكربت فيه لو انشغل بـpython3 حق الجهاز
+if [ "$OS" = mac ]; then
+  VEB="${VEB_HOME:-$HOME/Documents/video-edit}"; VENV="$VEB/tools/py"; VPY="$VENV/bin/python"; BASEPY="$PY"; PY="$VPY"
 fi
 fi
 pymod(){ "$PY" -c "import $1" 2>/dev/null; }
@@ -200,13 +208,19 @@ if [ "$OS" = win ]; then   # ويندوز: numpy والتفريغ وكاشف ا�
   else line "اختياري: قص الشخص بنموذج على كرت الشاشة (حواف شعر احسن لتاثير الكلام ورا الشخص) ~110 ميقا: $0 --install --cutout"; fi
   [ -s "$ISNET" ] && OK+=("قص الصور") || line "اختياري: نموذج قص الصور (الكولاج والصور المولدة) ~180 ميقا: $0 --subjectcut. بدونه subjectcut.py يقص الخلفية السادة بس"
 else
-have $PY    && OK+=("python") || { MISS+=("python"); SIZE+=("Python ~50 ميقا"); }
+have "${BASEPY:-$PY}" && OK+=("python") || { MISS+=("python"); SIZE+=("Python ~50 ميقا"); }
+if [ "$OS" = mac ]; then   # ماك: numpy والتفريغ من venv ادوات المونتاج، فحجمها سطر واحد (mlx وtorch وscipy…)
+  STT=mlx_whisper; VSIZE="~280 ميقا"; [ $APPLE -eq 1 ] || { STT=faster_whisper; VSIZE="~150 ميقا"; }
+  if pymod numpy && pymod $STT; then OK+=("numpy" "التفريغ")
+  else MISS+=("mac-venv"); SIZE+=("أدوات بايثون للمونتاج (numpy والتفريغ) بمجلد خاص $VSIZE + نموذج التفريغ أول تشغيل ~3 قيقا"); fi
+else
 pymod numpy && OK+=("numpy")  || { MISS+=("numpy");  SIZE+=("numpy ~20 ميقا"); }
 # ── التفريغ
 if [ $APPLE -eq 1 ]; then
   pymod mlx_whisper && OK+=("التفريغ") || { MISS+=("mlx-whisper"); SIZE+=("أداة التفريغ ~50 ميقا + نموذجها أول تشغيل ~3 قيقا"); }
 else
   pymod faster_whisper && OK+=("التفريغ") || { MISS+=("faster-whisper"); SIZE+=("أداة التفريغ ~100 ميقا + نموذجها أول تشغيل ~3 قيقا"); }
+fi
 fi
 # ── كاشف الوجه وقصّ الشخص
 if [ "$OS" = mac ]; then
@@ -248,6 +262,14 @@ if [ "$OS" = win ]; then
   UAC="🔐 بتطلع لك نافذة من ويندوز تطلب الاذن، اضغط «نعم». لو ما ظهرت، شوف الايقونة اللي تومض تحت بشريط المهام"
 else
 pipi(){ $PY -m pip install --quiet --user "$@" 2>/dev/null || $PY -m pip install --quiet --break-system-packages "$@" 2>/dev/null || $PY -m pip install --quiet "$@"; }
+# ماك: الـvenv بالنسخ اللي اشتغلت على بايثون 3.14 (نوفمبر 2026). venv ما يشتغل (بايثون اللي انبنى منه انشال): --clear يبنيه من
+# جديد من بايثون الجهاز الحالي. ماك إنتل: faster-whisper بنفس حدود ويندوز (ما جربناه). بلا PYTHONPATH: معه الـvenv يسجل مسار
+# Cellar حق النسخة (ينمسح مع brew cleanup بعد اول تحديث) بدل opt/python@3.x الثابت، وpip يشوف مكتبات غيره
+mac_venv(){
+  "$VPY" -c 'import sys' >/dev/null 2>&1 || env -u PYTHONPATH -u PYTHONHOME "$BASEPY" -m venv --clear "$VENV" || return 1
+  if [ $APPLE -eq 1 ]; then env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy==2.5.2" "mlx==0.32.2" "mlx-whisper==0.4.3" "torch==2.13.0"
+  else env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy<3" "faster-whisper>=1.2" "ctranslate2>=4.6.3,<5"; fi
+}
 fi
 winget_i(){ winget install --silent --accept-package-agreements --accept-source-agreements -e --id "$@"; }
 
@@ -284,6 +306,7 @@ for m in "${MISS[@]}"; do
         refresh_path   # بايثون ينعاد اختياره بالـPATH الجديد قبل الـvenv، واداة ما تبان بعده فشلت
         case $m in python) BASEPY="$(base_py)"; [ -n "$BASEPY" ] ;; *) WG+=("$m"); have $m ;; esac || NOTE+=("$m فشل")
       else NOTE+=("نزّل $m بمدير الحزم (apt/dnf)"); fi ;;
+    mac-venv)       line "⏬ ادوات بايثون للمونتاج (مجلد خاص)…"; mac_venv || NOTE+=("ادوات بايثون للمونتاج فشلت") ;;
     numpy)          line "⏬ numpy…"; pipi numpy || NOTE+=("numpy فشل") ;;
     mlx-whisper)    line "⏬ mlx-whisper…"; pipi mlx-whisper || NOTE+=("mlx-whisper فشل") ;;
     faster-whisper) line "⏬ faster-whisper…"; pipi faster-whisper || NOTE+=("faster-whisper فشل") ;;

@@ -7,6 +7,7 @@
   ffmpeg -i ref.mp4 -vf "fps=12,scale=160:90,format=gray" -f rawvideo v.raw -y
   python3 measure_ref.py a.raw v.raw
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

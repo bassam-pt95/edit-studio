@@ -7,6 +7,7 @@
 ② مفاتيح الكاميرا المتداخلة: [t, مدة, …] — لو المفتاح اللي بعده يبدأ قبل ما يخلص هذا، الانتقال يبدأ من هدف ما وصلناه = قفزة.
 ③ (تنبيه) انتقال سريع فوق خلفية دورية: لو ذروة السرعة قريبة من دورة الأشرطة (ورق green-bar دورته 168) تثبت الأشرطة وترمش.
    الحل المعتمد: مدة ≥ 0.85 ث + غباش حركة رأسي بقدر السرعة (feGaussianBlur stdDeviation="0 N" على الطبقة المتحركة)."""
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os, re, subprocess
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

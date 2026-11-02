@@ -7,6 +7,7 @@ HOME  : مجلد بيانات المستخدم. كل شي يخصّه ينحفظ 
         dialect.json (لهجته) · sounds/ (مكتبة أصواته) · refs/ (مراجعه) · tools/ (أدوات منزّلة)
         الافتراضي: ~/Documents/video-edit — ويتغيّر بمتغيّر البيئة VEB_HOME.
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import os, sys, json, re, subprocess, unicodedata
 SKILL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

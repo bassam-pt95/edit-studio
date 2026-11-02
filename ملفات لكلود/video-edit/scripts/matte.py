@@ -8,6 +8,7 @@ guideDir: اقنعة personmask لنفس الفريمات. النموذج ياخ
 النموذج <VEB_HOME>/tools/models/modnet.onnx، ينزل مع ادوات كرت الشاشة بـ bash scripts/00_setup.sh --install --cutout
 VEB_MATTE=cpu يجبره على المعالج.
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

@@ -8,6 +8,7 @@
  ④ ميزانية طيفية               — مؤثران فوق ٤ كيلوهرتز في الدقيقة كحد أقصى
  ⑤ الكثافة ≤ ٢٠ في الدقيقة
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import json, os, sys, subprocess
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

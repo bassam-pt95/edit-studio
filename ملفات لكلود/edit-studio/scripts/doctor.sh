@@ -53,6 +53,8 @@ fi
 STT_MOD=mlx_whisper; [ "$OS" = win ] && STT_MOD=faster_whisper
 [ "$OS" = win ] && resolve_pybin   # ويندوز: بايثون venv المونتاج، والا بايثون حقيقي (مو اختصار المتجر)
 [ "$OS" = win ] && [ -z "$PYBIN" ] && path_again && resolve_pybin
+# الماك (1.0.20): بايثون مهارة المونتاج الخاص لو يشتغل (MPY من _common.sh)، والا بايثون الجهاز (تثبيت قبل ما يتحدث)
+MAC_VENV=0; [ "$OS" = mac ] && "$MPY" -c 'import sys' </dev/null >/dev/null 2>&1 && { MAC_VENV=1; PYBIN="$MPY"; }
 # فاحص نموذج التفريغ: جنب الاستوديو بالحزمة وبعد التثبيت، ومن المستودع بـv2/tools
 FETCH="$PKG_DIR/studio/tools/np/model_fetch.py"; [ -f "$FETCH" ] || FETCH="$PKG_DIR/../../tools/np/model_fetch.py"
 # ويندوز: التفريغ على كرت NVIDIA يحتاج cuBLAS 12 (ctranslate2 ما يجيبه)، وfaster-whisper 1.2 ما يشتغل مع PyAV 15 واحدث.
@@ -106,6 +108,7 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
     MODEL_OK=0; "$PYBIN" "$FETCH" --has </dev/null >/dev/null 2>&1 && MODEL_OK=1
     if [ $MODEL_OK = 1 ]; then ok "Python $PV مع أداة التفريغ ونموذجها"
     else ok "Python $PV مع أداة التفريغ"; warn "نموذج التفريغ مو منزّل (~3 غيغابايت): ينزل مع setup.sh --install، أو الاستوديو ينزّله بنفسه أول تفريغ"; fi
+    [ "$OS" = mac ] && [ $MAC_VENV = 0 ] && warn "أداة التفريغ داخل بايثون Homebrew، وتحديث بايثون يضيّعها: setup.sh --install ينقلها لمجلد بايثون خاص"
     if [ "$OS" = win ]; then
       read -r AVV CTV NDEV F16 CUBOK CUB <<< "$(stt_probe 2>/dev/null | tr -d '\r')"
       if [ -z "$NDEV" ]; then warn "تعذر فحص التفريغ على كرت الشاشة"
@@ -250,7 +253,9 @@ else warn "مهارة المونتاج ليست في ~/.claude/skills (تنرك�
 # العدد بالعربي: nar <العدد> <واحد> <اثنان> <من 3 إلى 10> <11 فأكثر>
 nar(){ if [ "$1" -eq 1 ]; then echo "$2"; elif [ "$1" -eq 2 ]; then echo "$3"; elif [ "$1" -le 10 ]; then echo "$1 $4"; else echo "$1 $5"; fi; }
 echo "────"
-if [ $P -eq 0 ] && [ $W -eq 0 ]; then echo "النتيجة: كل شيء جاهز."
-elif [ $P -eq 0 ]; then echo "النتيجة: كل شيء جاهز. التنبيهات (⚠) أعلاه لا تمنع العمل."
+# نموذج التفريغ مو منزّل: «جاهز» بس أول تفريغ ينتظر تنزيله (مراجعة 1.0.19، I6). كان يقول «كل شيء جاهز»
+READY="كل شيء جاهز"; [ "${MODEL_OK:-1}" = 0 ] && READY="جاهز، وأول تفريغ ينزّل نموذجه (~3 قيقا)"
+if [ $P -eq 0 ] && [ $W -eq 0 ]; then echo "النتيجة: $READY."
+elif [ $P -eq 0 ]; then echo "النتيجة: $READY. التنبيهات (⚠) أعلاه لا تمنع العمل."
 else echo "النتيجة: $(nar $P 'مشكلة واحدة' 'مشكلتان' 'مشكلات' 'مشكلة'). إن لم تُحل، أرسل هذا التقرير كما هو لبسام."; fi
 exit $P

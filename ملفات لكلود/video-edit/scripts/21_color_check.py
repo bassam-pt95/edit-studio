@@ -12,6 +12,7 @@
   ريموشن الافتراضي: بلا وسم · مصفوفة 601 · ΔY −1.7 · ميل R/B 1.8 (يلاحظها صاحب المقطع بعينه)
   الصح (وسيط 444 + --color-space bt709): موسوم · ΔY +0.0 · ميل 0.0
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os, json, subprocess
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

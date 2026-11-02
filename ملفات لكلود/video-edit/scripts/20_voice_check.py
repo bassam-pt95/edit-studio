@@ -2,6 +2,7 @@
 """صوته خرج كما دخل؟ — يطرح المؤثرات من الناتج ويقارن الباقي بـvoice.wav.
    python3 20_voice_check.py <work> <الناتج.mp4>      → يخرج 3 لو صوته تغيّر · 4 لو ملف ما انقرا (الفحص ما تم)
 ⛔ الارتباط الخام مع المؤثرات ينزل تحت 0.999 وهو سليم — لازم تُطرح sfx.wav أولاً (القاعدة ١٩)."""
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import sys, os, subprocess
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

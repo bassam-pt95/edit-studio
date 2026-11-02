@@ -1,0 +1,2 @@
+import r from"node:crypto";const n=r.randomBytes(24).toString("base64url"),s="x-studio-key",f=()=>n;function u(t){const e=t&&t.headers?t.headers[s]:null;return typeof e=="string"&&e.length===n.length&&r.timingSafeEqual(Buffer.from(e),Buffer.from(n))}function i(t,e,o=null){return!e||!e.headers||e.headers["sec-fetch-dest"]!=="document"||o&&(o.lan||o.phone)?t:String(t).replace(/<head>/i,`<head>
+<meta name="studio-key" content="${n}">`)}export{s as KEY_HEADER,u as fromPage,f as pageKey,i as withKey};

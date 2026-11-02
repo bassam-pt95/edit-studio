@@ -5,6 +5,7 @@ sfx.json = { "outro": 0, "<اسم الصوت>": [توقيتات...] }
 الأسماء المتاحة مطبوعة بآخر التشغيل. الأصوات الدلالية (خطوات، حديد، طيران…)
 تُربط بما يقوله المتحدث فعلاً، لا بأي انتقال.
 """
+import _venv  # ماك: ينعاد تشغيله ببايثون المونتاج الخاص لو انشغل بغيره (قبل numpy والتفريغ)
 import wave, sys, os, json, unicodedata
 if os.name == 'nt' and not sys.flags.utf8_mode and (sys.flags.ignore_environment or not os.environ.get('PYTHONUTF8')):
     os.environ['PYTHONUTF8'] = '1'; import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.orig_argv[1:]]))

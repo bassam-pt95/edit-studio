@@ -88,6 +88,11 @@ else
   PY="$DATA/py/bin/python"; PYBIN=python3
   DESK_EXT="app"
   export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+  # الماك من 1.0.20 مثل ويندوز (مراجعة 1.0.19، I2): التفريغ ببايثون مهارة المونتاج الخاص (venv يبنيه 00_setup.sh)، مو بايثون
+  # Homebrew اللي يتحدث ويضيّع أدواته. venv ما يشتغل (انشال بايثون اللي انبنى منه) ما ينحسب: التفريغ يدوّر بالبايثونات الثانية
+  # (MPY يبقى مساره حتى لو ما ينبنى للحين: setup.sh يبنيه بنص التثبيت ويدوّر عليه بعدها بـstt_py)
+  MPY="$VEB/tools/py/bin/python"
+  "$MPY" -c 'import sys' </dev/null >/dev/null 2>&1 && export MOHRER_STT_PYTHON="${MOHRER_STT_PYTHON:-$MPY}"
 fi
 # ويندوز: curl حق Git (Schannel) يفحص الغاء الشهادة، وورا برنامج حماية يفحص HTTPS او بروكسي يطيح بخطا 35 لو خادم الفحص ما ينوصل.
 # --ssl-revoke-best-effort يسمح بهالشي بس (سلسلة الشهادة واسم الموقع تنفحص). نص مو مصفوفة: المصفوفة الفاضية مع set -u تطيح على bash 3.2 بالماك

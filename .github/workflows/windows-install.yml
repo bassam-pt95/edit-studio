@@ -1283,7 +1283,11 @@ jobs:
 
           (async () => {
             // the graphics card the runner has (Windows' software one) allowed, as the studio's own hidden page allows it (look-page.mjs)
-            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
+            // (run 41478240120, the Arabic user folder: on Windows puppeteer calls any failed start «already running» and says no more)
+            // its own profile folder, two minutes to start on a busy runner, and the browser's own words in the log
+            const prof = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'export-chrome-'));
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, userDataDir: prof, dumpio: true, timeout: 120000,
+              args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
             const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
             try {
               // 1 the clip
@@ -1818,7 +1822,16 @@ jobs:
           "installed: " + ((& $listed | ForEach-Object { $_.DisplayName }) -join ' | ')
           # Python's own installers first (they take their parts with them), then every MSI left
           foreach ($a in & $listed) { if ($a.QuietUninstallString -match '^"([^"]+)"\s*(.*)$') { "uninstall: $($a.DisplayName)"; Start-Process -FilePath $Matches[1] -ArgumentList $Matches[2] -Wait -NoNewWindow } }
-          foreach ($a in & $listed) { if ($a.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') { "uninstall (msi): $($a.DisplayName)"; Start-Process msiexec.exe -ArgumentList '/x', $a.PSChildName, '/qn', '/norestart' -Wait -NoNewWindow } }
+          # (run 41478240120: one pass left 20 of Python's parts installed, their exit codes unseen) each MSI until it is gone, its exit
+          # code said; IGNOREDEPENDENCIES=ALL: Python's parts name the image's own bundle as their dependent, which refuses taking one
+          # alone; 1618 (another install still running) waits and tries again
+          for ($pass = 1; $pass -le 5 -and (& $listed); $pass++) {
+            foreach ($a in & $listed) { if ($a.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') {
+              $p = Start-Process msiexec.exe -ArgumentList '/x', $a.PSChildName, '/qn', '/norestart', 'IGNOREDEPENDENCIES=ALL' -Wait -NoNewWindow -PassThru
+              "uninstall (msi, pass $pass): $($a.DisplayName) → exit $($p.ExitCode)"
+              if ($p.ExitCode -eq 1618) { Start-Sleep -Seconds 10 }
+            } }
+          }
           $left = & $listed
           if ($left) { throw "still installed: $(($left | ForEach-Object { $_.DisplayName }) -join ' | ')" }
           # what the image keeps outside Windows' list: its tool cache (every Node and Python), the py launcher if one is left

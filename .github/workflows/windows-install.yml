@@ -333,7 +333,8 @@ jobs:
             if (d.refuse !== 'studio-file') bad++;
           }
           // the live studio: a script with no key cannot raise the level; the page a browser opens carries the key, and with it the change goes through
-          const url = process.env.URL, folder = encodeURIComponent(process.env.FOLDER);
+          // studio.sh status prints the address with its last «/»: «//x/…» is not a route (404 on run 41397550343)
+          const url = process.env.URL.replace(/\/+$/, ''), folder = encodeURIComponent(process.env.FOLDER);
           const perm = (level, headers = {}) => fetch(`${url}/x/${folder}/api/assistant/perm`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ level }) });
           const r1 = await perm('all');
           console.log('a script with no key:', r1.status);

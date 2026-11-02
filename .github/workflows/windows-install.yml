@@ -352,6 +352,108 @@ jobs:
           console.log('PASSED');
           JS
           PERMIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/server/assistant/permit.mjs")" URL="$URL" FOLDER='تجربة ويندوز' PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/gate_check.mjs")"
+      - name: a project's paths stay in its folder, and the phone reads no private file in any spelling (1.0.21) — backslash and «:» ids refused and never saved, 8.3 names and data streams at the door, a real LAN link stopped and one closing itself
+        # audit 1.0.19 batch B (S5 S10 S11 S12): the studio as installed and the running one, on this machine's NTFS
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          echo "studio: $URL"
+          cat > "$HOME/paths_check.mjs" <<'JS'
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+          import { execSync } from 'node:child_process';
+          const mod = (rel) => import(pathToFileURL(path.join(process.env.APP, rel)).href);
+          const { validate } = await mod('public/js/model/schema.js');
+          const { inProject, makeHq } = await mod('server/media.mjs');
+          const { doorAllowed } = await mod('server/door.mjs');
+          const { lanAllowed, startLan, stopLan, lanState } = await mod('server/lan.mjs');
+          const url = process.env.URL.replace(/\/+$/, ''), fq = encodeURIComponent(process.env.FOLDER);
+          let bad = 0;
+          const check = (ok, what) => { console.log(ok ? 'ok  ✓' : 'BAD ✗', what); if (!ok) bad++; };
+          const keyOf = async (f) => { try { await f(); return 'none'; } catch (e) { return e.key || String(e.message || e); } };
+          const shortName = (f) => { try { return process.platform === 'win32' ? execSync(`cmd /c for %I in ("${f}") do @echo %~nxsI`, { encoding: 'utf8' }).trim() : ''; } catch { return ''; } };
+
+          // S5: ids and files that leave the project the ways this system spells them; the page's save of one is refused
+          const got = await (await fetch(`${url}/x/${fq}/api/project`)).json();
+          const p = got.project, [aid, a0] = Object.entries(p.assets).find(([, a]) => a.kind === 'video');
+          for (const id of ['..\\..\\escaped', '../../escaped', 'a:evil', 'C:\\x']) {
+            const q = structuredClone(p); q.assets[id] = { ...a0 };
+            check(validate(q).errors.some((e) => e.key === 'val.path'), `validate refuses the asset id ${JSON.stringify(id)}`);
+          }
+          for (const f of ['media\\..\\..\\x.mp4', 'C:/Windows/win.ini', 'media/x.mp4:zone', '..\\x.mp4', '/etc/hosts']) {
+            const q = structuredClone(p); q.assets[aid] = { ...a0, master: f };
+            check(validate(q).errors.some((e) => e.key === 'val.path'), `validate refuses the master ${JSON.stringify(f)}`);
+          }
+          const kept = structuredClone(p); kept.assets[aid] = { ...a0, origin: 'C:\\Users\\someone\\Videos\\cam.mp4' };
+          check(validate(kept).ok, 'an origin on any drive stays valid (provenance, read only)');
+          const evil = structuredClone(p); evil.assets['..\\..\\escaped'] = { ...a0 };
+          const put = await fetch(`${url}/x/${fq}/api/project`, { method: 'PUT', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ baseRev: got.rev, clientId: 'win-check', label: 'paths', project: evil }) });
+          check(put.status === 422 && (await put.text()).includes('val.path'), `the studio does not save it (${put.status})`);
+          check(!Object.keys((await (await fetch(`${url}/x/${fq}/api/project`)).json()).project.assets).some((k) => k.includes('escaped')), 'the project stays as it was');
+          const T = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'paths-'))), dir = path.join(T, 'proj');
+          fs.mkdirSync(path.join(dir, 'media'), { recursive: true });
+          const naive = path.join(dir, 'media', '..\\..\\escaped.hq.mp4');
+          console.log('     path.join here:', naive, '| outside the project:', !naive.startsWith(dir + path.sep));
+          check(await keyOf(() => makeHq({ dir, id: '..\\..\\escaped', master: 'media/a.mp4', fps: [30, 1] })) === 'val.path', 'the full-quality copy refuses that id before ffmpeg');
+          check(await keyOf(() => inProject(dir, 'media/a.mp4:zone')) === 'val.path', 'a data stream of a file inside is refused');
+          check(inProject(dir, 'media/a.mp4') === path.join(dir, 'media', 'a.mp4'), 'a file inside passes');
+
+          // S12, S11: names as this disk reads them, at the door (his phone) and on the LAN link
+          fs.writeFileSync(path.join(dir, 'notes.json'), '[]');
+          fs.mkdirSync(path.join(dir, 'notes-shots'));
+          fs.writeFileSync(path.join(dir, 'notes-shots', 'n_1.jpg'), 'x');
+          const sf = shortName(path.join(dir, 'notes.json')), sd = shortName(path.join(dir, 'notes-shots'));
+          for (const n of ['NOTES.JSON', 'notes.j\u017fon', 'notes.json.', 'notes.json::$DATA', ...(sf && sf.toLowerCase() !== 'notes.json' ? [sf] : [])]) {
+            console.log(`     «${n}» opens notes.json on this disk: ${fs.existsSync(path.join(dir, n))}`);
+            check(!doorAllowed('GET', `/x/F/p/${n}`), `the door refuses /p/${n}`);
+          }
+          for (const n of ['project.json', 'PROJECT.JSON', 'PROJEC~1.JSO', 'project.json::$DATA', 'project.json.tmp', 'plan.json', 'Plan.Json']) check(!doorAllowed('GET', `/x/F/p/${n}`), `the door refuses /p/${n}`);
+          for (const n of ['NOTES-SHOTS', 'notes-\u017fhots', 'notes-shots.', ...(sd && sd.toLowerCase() !== 'notes-shots' ? [sd] : [])]) {
+            const opens = fs.existsSync(path.join(dir, n, 'n_1.jpg'));
+            console.log(`     «${n}» opens notes-shots on this disk: ${opens}`);
+            check(!doorAllowed('GET', `/x/F/p/${n}/n_1.jpg`), `the door refuses /p/${n}/`);
+            // the LAN rule reads names as this system's disk does (a trailing dot is another name on the Mac)
+            if (opens || process.platform === 'win32') check(!lanAllowed('GET', `/x/F/p/${n}/n_1.jpg`, 'F'), `the LAN link refuses /p/${n}/`);
+          }
+          check(doorAllowed('GET', '/x/F/p/media/a.mp4') && lanAllowed('GET', '/x/F/p/media/a.mp4', 'F'), 'the media still pass');
+
+          // S10: a LAN link of the running studio: no note picture in any spelling; «أوقف الرابط» ends it and its token
+          const info = await (await fetch(`${url}/api/info`)).json();
+          const pdir = path.join(info.root, process.env.FOLDER);
+          fs.mkdirSync(path.join(pdir, 'notes-shots'), { recursive: true });
+          fs.writeFileSync(path.join(pdir, 'notes-shots', 'n_check.jpg'), 'his note picture');
+          const lan = await (await fetch(`${url}/x/${fq}/api/lan`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
+          if (lan.error) console.log('     no LAN address on this machine:', lan.error, '(the link is tried below on 127.0.0.1 through the same module)');
+          else {
+            const base = new URL(lan.url).origin, k = `k=${lan.token}`;
+            const media = p.assets[aid].file.split('/').map(encodeURIComponent).join('/');
+            check((await fetch(`${base}/x/${fq}/p/${media}?${k}`, { headers: { range: 'bytes=0-99' } })).status === 206, 'the link gives the media');
+            for (const n of ['NOTES-SHOTS', 'notes-\u017fhots', 'notes-shots.', 'NOTES-~1']) {
+              const r = await fetch(`${base}/x/${fq}/p/${encodeURIComponent(n)}/n_check.jpg?${k}`);
+              // Windows reads all four as notes-shots: refused; elsewhere the last two are other names, which do not exist
+              const win = process.platform === 'win32', ok = r.status === 403 || (!win && r.status === 404 && /[.~]/.test(n));
+              check(ok && !(await r.text()).includes('his note picture'), `the link never gives the picture through ${n}/ (${r.status})`);
+            }
+            await fetch(`${url}/x/${fq}/api/lan`, { method: 'DELETE' });
+            const after = await fetch(`${base}/x/${fq}/api/project?${k}`).then((r) => r.status, () => 'refused');
+            check(after === 'refused', `stopped: its token gets nothing (${after})`);
+          }
+          fs.rmSync(path.join(pdir, 'notes-shots', 'n_check.jpg'), { force: true });
+          // a link nobody uses closes itself (the installed module, 1.5 s instead of 30 minutes)
+          const own = await startLan(null, { handle: (req, res) => { res.writeHead(200); res.end('ok'); }, address: '127.0.0.1', idleMs: 1500 });
+          check((await fetch(own.url)).status === 200, 'a new link answers');
+          await new Promise((r) => setTimeout(r, 2600));
+          check(lanState() === null, 'unused for its time: it closed itself');
+          check(await fetch(own.url).then((r) => r.status, () => 'refused') === 'refused', 'and its token gets nothing');
+          await stopLan();
+          fs.rmSync(T, { recursive: true, force: true });
+          if (bad) { console.error(`FAILED: ${bad}`); process.exit(1); }
+          console.log('PASSED');
+          JS
+          APP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio")" URL="$URL" FOLDER='تجربة ويندوز' PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/paths_check.mjs")"
       - name: «شكل السلسلة» on Windows (1.0.17) — a folder takes a clip's look, and a new clip in it starts from it
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"
@@ -568,6 +670,236 @@ jobs:
           print('words of the sentence heard:', hits)
           assert len(hits) >= 3, 'the sentence said is not there: ' + said
           PY
+      - name: data safety on Windows (1.0.21) — prefs.json held open by another program is never written over, saves leave no tmp, an export takes its name only once muxed, a broken clip comes back, a second server on the same projects is refused
+        # audit 1.0.19 batch C (D3, D2, D4, D1, D8) on the studio as installed, the clip «مقطع جديد» made above
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          D="$HOME/Documents/video-edit/studio"
+          export URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')" DATA="$(cygpath -w "$D")" CLIP='تجربة ويندوز' SERVER="$(cygpath -w "$D/app/studio/server.mjs")" PYTHONIOENCODING=utf-8
+          cat > "$HOME/data_check.py" <<'PY'
+          import json, os, shutil, subprocess, sys, urllib.error, urllib.parse, urllib.request
+          # batch C (1.0.21) on the studio as installed: URL = the running studio, DATA = its data folder (home/, projects/),
+          # CLIP = the clip «مقطع جديد» made above, SERVER = its server.mjs. One mode per call (the step runs them in order).
+          url, D, clip = os.environ['URL'], os.environ['DATA'], os.environ['CLIP']
+          home, projects = os.path.join(D, 'home'), os.path.join(D, 'projects')
+          prefs = os.path.join(home, 'prefs.json')
+          def call(path, body=None, method=None, raw=None, ctype='application/json', timeout=120):
+              data = raw if raw is not None else (None if body is None else json.dumps(body).encode('utf-8'))
+              req = urllib.request.Request(url + path, data=data, headers={'content-type': ctype}, method=method or ('GET' if data is None else 'POST'))
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or '{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or '{}')
+          q = lambda f: 'x/' + urllib.parse.quote(f)
+          read = lambda f: open(f, 'rb').read()
+          def write(f, b):
+              with open(f, 'wb') as h: h.write(b)
+          mode = sys.argv[1]
+
+          if mode == 'prefs-prep':
+              # D3: every setting he has stays; a marker shows it
+              p = json.loads(read(prefs).decode('utf-8')) if os.path.exists(prefs) else {}
+              p['ciKeep'] = 'every setting stays'
+              write(prefs, json.dumps(p, ensure_ascii=False).encode('utf-8'))
+              print('prefs.json:', p)
+
+          elif mode == 'prefs-held':
+              # D3: another program holds prefs.json (open with no sharing): an ordinary write is refused with why, never {}+change
+              st, j = call('api/hints', {'seen': 'plan'}, 'PUT')
+              print('a hint press while prefs.json is held:', st, json.dumps(j, ensure_ascii=False))
+              assert st == 409 and j.get('error') == 'prefs.err.unreadable' and (j.get('vars') or {}).get('why'), j
+
+          elif mode == 'prefs-after':
+              p = json.loads(read(prefs).decode('utf-8'))
+              assert p.get('ciKeep') == 'every setting stays', 'written over: %r' % p
+              good = read(prefs)
+              write(prefs, good[:25])                                   # half written (a cut write): refused too
+              st, j = call('api/hints', {'seen': 'plan'}, 'PUT')
+              print('a hint press on a half-written prefs.json:', st, json.dumps(j, ensure_ascii=False))
+              assert st == 409 and j.get('error') == 'prefs.err.unreadable', j
+              assert read(prefs) == good[:25], 'written over'
+              write(prefs, good)
+              st, j = call('api/hints', {'seen': 'plan'}, 'PUT')
+              assert st == 200, j
+              assert json.loads(read(prefs).decode('utf-8')).get('ciKeep') and json.loads(read(prefs + '.bak').decode('utf-8')).get('ciKeep'), 'prefs.json or its .bak lost a setting'
+              print('readable again: written, the last good file kept as prefs.json.bak')
+
+          elif mode == 'saves':
+              # D2: five saves in a row, each through a tmp of its own synced to the disk: none left beside project.json
+              st, g = call(q(clip) + '/api/project')
+              assert st == 200, g
+              rev, p = g['rev'], g['project']
+              for i in range(5):
+                  p.setdefault('meta', {})['ciSaves'] = i
+                  st, r = call(q(clip) + '/api/project', {'baseRev': rev, 'clientId': 'ci', 'project': p}, 'PUT')
+                  assert st == 200, r
+                  rev = r['rev']
+              left = [f for f in os.listdir(os.path.join(projects, clip)) if f.endswith('.tmp')]
+              print('5 saves, rev', rev, '| tmp files left:', left)
+              assert not left, left
+
+          elif mode == 'export':
+              # D4: the mux writes «<name>.mp4.part» and the file takes its name once it is through (Windows: renameRetry)
+              name = 'تصدير ويندوز'
+              st, j = call(q(clip) + '/api/export', {'name': name, 'range': [0, 6]})
+              assert st == 200, j
+              job = j['jobId']
+              st, info = call(q(clip) + '/api/export/' + job)
+              frame = bytes([90]) * (info['W'] * info['H'] * 4)
+              for n in range(6):
+                  st, r = call(q(clip) + '/api/export/%s/frame?n=%d' % (job, n), raw=frame, ctype='application/octet-stream')
+                  assert st == 200, r
+              st, d = call(q(clip) + '/api/export/%s/done' % job, {}, timeout=600)
+              print('export:', st, json.dumps({k: d.get(k) for k in ('file', 'verify', 'error', 'vars')}, ensure_ascii=False))
+              assert st == 200, d
+              out = os.listdir(os.path.join(projects, clip, 'out'))
+              print('out/:', out)
+              assert name + '.mp4' in out and not [f for f in out if f.endswith('.part')], out
+
+          elif mode == 'broken':
+              # D1: a copy of the clip with its project.json cut (what a crash can leave) is a broken card, and comes back
+              copy = 'تجربة تالفة'
+              dst = os.path.join(projects, copy)
+              shutil.rmtree(dst, ignore_errors=True)
+              shutil.copytree(os.path.join(projects, clip), dst, ignore=shutil.ignore_patterns('out', 'render'))
+              hist = os.path.join(dst, '.history')
+              snaps = [f for f in os.listdir(hist) if f.startswith('project-')] if os.path.isdir(hist) else []
+              assert snaps, 'no snapshot in .history to come back to'
+              write(os.path.join(dst, 'project.json'), read(os.path.join(dst, 'project.json'))[:200])
+              st, lst = call('api/projects')
+              e = next((x for x in lst.get('projects', []) if x.get('folder') == copy), None)
+              print('the library:', json.dumps(e, ensure_ascii=False))
+              assert e and e.get('broken') and e['broken'].get('good'), 'not a broken card with its good copy'
+              st, r = call('api/projects/%s/restore-good' % urllib.parse.quote(copy), {})
+              print('«رجّع آخر نسخة سليمة»:', st, json.dumps(r, ensure_ascii=False))
+              assert st == 200 and r.get('ok'), r
+              st, pr = call(q(copy) + '/api/project')
+              assert st == 200 and pr['project']['spine'], pr
+              assert os.path.exists(os.path.join(dst, *r['kept'].split('/'))), 'the broken file was not kept'
+              st, lst = call('api/projects')
+              assert not next(x for x in lst['projects'] if x['folder'] == copy).get('broken')
+
+          elif mode == 'second':
+              # D8: a second server on the same projects folder ends at once (exit 1) and names the running one
+              r = subprocess.run([shutil.which('node'), os.environ['SERVER'], '--root', projects, '--port', '0'], capture_output=True, encoding='utf-8',
+                                 timeout=60, env={**os.environ, 'MOHRER_HOME': home, 'MOHRER_MODEL_FETCH': '0'})
+              said = (r.stdout + r.stderr).strip()
+              print('a second server on the same projects:', r.returncode, said[:400])
+              assert r.returncode == 1 and url.rstrip('/') in said, 'not refused'
+
+          elif mode == 'crash-leave':
+              # D4 + D5: what a crash leaves (an export cut mid-mux, a job's render folder)
+              c = os.path.join(projects, clip)
+              os.makedirs(os.path.join(c, 'render', 'xcidead000'), exist_ok=True)
+              write(os.path.join(c, 'render', 'xcidead000', 'video.mp4'), b'encoded video')
+              write(os.path.join(c, 'out', 'بعد الانهيار.mp4.part'), b'half a file')
+              print('left:', os.listdir(os.path.join(c, 'out')), os.listdir(os.path.join(c, 'render')))
+
+          elif mode == 'crash-after':
+              c = os.path.join(projects, clip)
+              st, _ = call(q(clip) + '/api/project')
+              assert st == 200
+              out, render = os.listdir(os.path.join(c, 'out')), os.listdir(os.path.join(c, 'render'))
+              print('after the start:', out, render)
+              assert 'بعد الانهيار.mp4.part' not in out and 'xcidead000' not in render, 'not cleared'
+              assert 'تصدير ويندوز.mp4' in out, 'a real export went'
+
+          else:
+              raise SystemExit('mode? ' + mode)
+          print('PASSED', mode)
+          PY
+          C="$(cygpath -w "$HOME/data_check.py")"
+          python "$C" prefs-prep
+          # D3: prefs.json held open with no sharing (as an antivirus or a sync tool can) while the studio writes a setting
+          rm -f "$HOME/prefs-held"
+          powershell -NoProfile -Command "\$f = [System.IO.File]::Open('$(cygpath -w "$D/home/prefs.json")', 'Open', 'ReadWrite', 'None'); New-Item -ItemType File '$(cygpath -w "$HOME/prefs-held")' | Out-Null; Start-Sleep -Seconds 20; \$f.Close()" &
+          HOLD=$!
+          for i in $(seq 1 30); do [ -f "$HOME/prefs-held" ] && break; sleep 1; done
+          test -f "$HOME/prefs-held"
+          python "$C" prefs-held
+          wait $HOLD
+          python "$C" prefs-after
+          python "$C" saves
+          python "$C" export
+          python "$C" broken
+          python "$C" second
+      - name: a page that is uploading, recording or exporting is never taken (1.0.21) — a chat's switch waits as a card, his own switch keeps a working page on «stay», a second window says the studio is busy and why
+        # audit 1.0.19 D6 + D9, in Chrome driven by puppeteer-core (installed by the close-guard step above)
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          cat > "$HOME/busy_check.cjs" <<'JS'
+          // D6 + D9 on this machine: the studio as installed, the clip «مقطع جديد» made above, in Chrome (puppeteer-core). An upload
+          // held in the page (ui/close-guard.js holdOpen, what a recording or an export does too): a chat's «open another clip»
+          // waits as a card, his own switch lets nothing go before Chrome asks, and a second window says the studio is busy
+          const pptr = require(process.env.PP);
+          const url = process.env.URL, folder = process.env.FOLDER;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          (async () => {
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close(); process.exit(1); };
+            try {
+              const at = `${url}?p=${encodeURIComponent(folder)}&test=1&guard=1`;
+              const open = async () => {
+                const p = await b.newPage();
+                await p.setViewport({ width: 1280, height: 760 });
+                await p.goto(at, { waitUntil: 'domcontentloaded' });
+                await p.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 90000 });
+                return p;
+              };
+              const state = (p) => p.evaluate(() => ({ released: !!window.__mohrer.ctx.released, away: !!document.querySelector('.tab-away'), stream: !window.__mohrer.ctx.stream.closed }));
+              const lines = (p) => p.evaluate(() => [...document.querySelectorAll('.toast')].map((x) => x.textContent).join(' | '));
+              const page = await open();
+              await page.mouse.click(640, 740);                // Chrome asks only on a page he has used
+              await page.evaluate(async () => { const { holdOpen } = await import('/js/ui/close-guard.js'); window.__letGo = holdOpen('upload'); });
+              const asked = [];
+              page.on('dialog', (d) => { asked.push(d.type()); d.dismiss().catch(() => {}); });   // «stay»
+              // 1 a chat opens another clip while the upload runs (his hand not the reason: no hold time)
+              await page.evaluate(() => { window.__mohrer.ctx.openHoldMs = 0; window.__mohrer.ctx.events.dispatchEvent(new CustomEvent('open', { detail: { folder: 'another-clip' } })); });
+              await sleep(1500);
+              let s = await state(page);
+              console.log('a chat\'s switch during an upload:', JSON.stringify({ asked, ...s }), '|', await lines(page));
+              if (asked.length || s.released || !s.stream) return fail('the chat took the page');
+              // 2 a second window of the studio
+              const p2 = await open();
+              for (let i = 0; i < 80 && !(await p2.$('.tab-away')); i++) await sleep(100);
+              const sheet = await p2.evaluate(() => (document.querySelector('.tab-away') || {}).textContent || '');
+              s = await state(page);
+              console.log('the second window:', sheet, '| the first:', JSON.stringify(s));
+              if (!/مشغول/.test(sheet) || !/تُرفع/.test(sheet)) return fail('the second window did not say the studio is busy and why');
+              if (s.released || s.away) return fail('the first window stepped aside during the upload');
+              await p2.close();
+              // 3 his own switch during the upload: Chrome asks first, and «stay» keeps a page that works
+              await page.evaluate(() => { window.__mohrer.ctx.openProject('another-clip'); });
+              for (let i = 0; i < 80 && !asked.length; i++) await sleep(100);
+              await sleep(800);
+              s = await state(page);
+              console.log('his own switch:', JSON.stringify({ asked, ...s }));
+              if (asked[0] !== 'beforeunload' || s.released || !s.stream) return fail('«stay» left a page with nothing working');
+              await page.evaluate(() => window.__letGo());
+              await b.close();
+              console.log('PASSED');
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" FOLDER='تجربة ويندوز' PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/busy_check.cjs")"
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
+      - name: after a crash on Windows (1.0.21) — an export cut mid-mux and a job's render folder are cleared when the studio starts again, a real export stays
+        # audit 1.0.19 D4 + D5: what a crash leaves is put there, the studio stopped and started as the desktop icon does
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          D="$HOME/Documents/video-edit/studio"
+          export URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')" DATA="$(cygpath -w "$D")" CLIP='تجربة ويندوز' PYTHONIOENCODING=utf-8
+          C="$(cygpath -w "$HOME/data_check.py")"
+          python "$C" crash-leave
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
+          export URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          python "$C" crash-after
       - name: desktop shortcut
         shell: pwsh
         run: |

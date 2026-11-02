@@ -8,7 +8,7 @@ permissions:
 jobs:
   install:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -59,10 +59,11 @@ jobs:
           "$PY" "$D/app/studio/voice/denoise.py" noisy.wav clean.wav --models "$D/app/studio/voice/dpdfnet"
           "$PY" "$D/app/studio/voice/dereverb.py" noisy.wav wpe.wav
           "$PY" -c "import soundfile as sf; a=sf.info('noisy.wav'); b=sf.info('clean.wav'); print(a.frames, b.frames, b.channels, b.subtype); assert a.frames == b.frames and b.channels == 2"
-      - name: the face tool the montage skill installs on Windows (mediapipe 0.10.21)
+      - name: the face tool the montage skill installed on Windows (mediapipe 0.10.21), from its own Python — its detector loads and runs on a frame
+        # (audit 1.0.19, P6) it used to pip-install mediapipe into the runner's Python and import it there, which passed even when
+        # the skill's install had left it out; now nothing is installed here, and the studio's «face» below reads the same venv
         run: |
-          python -m pip install --quiet "mediapipe<0.10.30" numpy opencv-python-headless
-          python -c "import mediapipe as m; m.solutions.face_detection; print('mediapipe', m.__version__)"
+          "$(cat "$HOME/mpy.txt")" -c "import mediapipe as m, numpy as np, cv2; d = m.solutions.face_detection.FaceDetection(model_selection=1); r = d.process(np.zeros((480, 640, 3), np.uint8)); d.close(); print('mediapipe', m.__version__, 'OpenCV', cv2.__version__, '| faces on an empty frame:', len(r.detections or [])); assert m.__version__ == '0.10.21', m.__version__"
       - name: montage skill, setup check (what it says is missing on this machine) (info)
         run: bash "$HOME/.claude/skills/video-edit/scripts/00_setup.sh" || echo "check exit $?"
       - name: start, status, info
@@ -92,13 +93,11 @@ jobs:
           test "${N:-0}" -ge 1
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
           taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
-      - name: «مقطع جديد» on Windows (1.0.14) — the page offers it, and a clip opens from a video
+      - name: «مقطع جديد» on Windows (1.0.14) — a clip opens from a video through its route
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"
           URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
-          # the page's own rule offers it on Windows (it was left hidden there before 1.0.14)
-          curl -s -m 30 -o main.js "${URL}js/main.js"
-          grep -q "win32" main.js
+          # the button itself is pressed on the page in «مقطع جديد» pressed on the page (P7) below; a grep of the minified main.js said nothing
           ffmpeg -nostdin -v error -y -f lavfi -i testsrc2=size=360x640:rate=30:duration=6 -f lavfi -i "sine=f=220:d=6" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/clip-test.mp4"
           VIDEO="$(cygpath -w "$HOME/clip-test.mp4")" URL="$URL" PYTHONIOENCODING=utf-8 python - <<'PY'
           import json, os, time, urllib.parse, urllib.request
@@ -900,6 +899,130 @@ jobs:
           bash "$S/start.sh" --no-open
           export URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
           python "$C" crash-after
+      - name: no text through cmd.exe, and a plan's limit says when it resets (1.0.22) — a pnpm .cmd launcher runs its own program with «&» left as words, a bare one is refused, «المونتير» ends «limit», the picture's request goes on stdin
+        # audit 1.0.19 S7 + C1 on the studio as installed: fake claude/codex behind pnpm-style .cmd launchers, the live studio restarted with them, then as it was
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          D="$HOME/Documents/video-edit/studio"
+          W="$HOME/why-bin"
+          mkdir -p "$W/global/5/node_modules/fake-claude" "$W/global/5/node_modules/fake-codex"
+          cat > "$W/global/5/node_modules/fake-claude/cli.js" <<'JS'
+          // a stand-in for claude or codex (its folder's name says which): records how it was started in <WHY_BIN>/why-log.jsonl and
+          // answers as the real one. The studio gives its children only a few variables, so nothing here comes from the environment
+          // but CODEX_HOME (which it passes on).
+          const fs = require('fs'), path = require('path');
+          const a = process.argv.slice(2), as = /codex/.test(path.basename(__dirname)) ? 'codex' : 'claude';
+          const BASE = path.resolve(__dirname, '..', '..', '..', '..');
+          const log = (o) => fs.appendFileSync(path.join(BASE, 'why-log.jsonl'), JSON.stringify({ as, ...o }) + '\n');
+          const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
+          if (a[0] === '--version') { console.log(as === 'codex' ? 'codex-cli 0.163.0' : '2.1.295 (Claude Code)'); process.exit(0); }
+          if (as === 'claude' && a[0] === 'auth') { console.log(JSON.stringify({ loggedIn: true, email: 'ci@example.com', subscriptionType: 'max' })); process.exit(0); }
+          if (as === 'codex' && a[0] === 'login') { console.error('Logged in using ChatGPT'); process.exit(0); }
+          let stdin = '', over = false;
+          process.stdin.setEncoding('utf8');
+          process.stdin.on('data', (d) => { stdin += d; });
+          process.stdin.on('end', done);
+          function done() {
+            if (over) return; over = true;
+            log({ argv: a, stdin });
+            if (as === 'claude') {
+              const line = 'Claude AI usage limit reached|1893456000';
+              out({ type: 'system', subtype: 'init', session_id: 'why-1', model: 'claude-sonnet-5-5' });
+              out({ type: 'assistant', uuid: 'u1', message: { content: [{ type: 'text', text: line }] } });
+              out({ type: 'result', subtype: 'success', is_error: true, result: line });
+              return process.stdout.write('', () => process.exit(1));
+            }
+            // codex exec: a picture in <CODEX_HOME>/generated_images/<thread>/
+            const dir = path.join(process.env.CODEX_HOME, 'generated_images', 'why-thread');
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, 'ig_1.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64'));
+            out({ type: 'thread.started', thread_id: 'why-thread' });
+            out({ type: 'turn.completed', usage: {} });
+            process.stdout.write('', () => process.exit(0));
+          }
+          JS
+          cp "$W/global/5/node_modules/fake-claude/cli.js" "$W/global/5/node_modules/fake-codex/cli.js"
+          # pnpm's launcher, as @zkochan/cmd-shim writes it (CRLF), one per program
+          for n in claude codex; do
+            printf '@SETLOCAL\r\n@IF EXIST "%%~dp0\\node.exe" (\r\n  "%%~dp0\\node.exe"  "%%~dp0\\global\\5\\node_modules\\fake-%s\\cli.js" %%*\r\n) ELSE (\r\n  @SET PATHEXT=%%PATHEXT:;.JS;=;%%\r\n  node  "%%~dp0\\global\\5\\node_modules\\fake-%s\\cli.js" %%*\r\n)\r\n' "$n" "$n" > "$W/$n.cmd"
+          done
+          printf '@echo off\r\nC:\\nowhere\\claude-run.bat %%*\r\n' > "$W/bare.cmd"
+          cat "$W/codex.cmd"
+          export WHY_BIN="$(cygpath -w "$W")" CODEX_HOME="$(cygpath -w "$HOME/why-codex-home")"
+          export PLATFORM_MJS="$(cygpath -w "$D/app/studio/server/platform.mjs")" GEN="$(cygpath -w "$D/app/studio/tools/gen-image.mjs")" CLIP='تجربة ويندوز' PYTHONIOENCODING=utf-8
+          rm -f "$W/why-log.jsonl" /c/Users/Public/why-marker.txt
+          cat > "$HOME/why_check.mjs" <<'JS'
+          // S7 + C1 on the studio as installed; argv[2] = shim | live | picture. WHY_BIN holds the launchers above (on the Mac: sh
+          // wrappers named claude and codex, the trial before the release; the shim part is Windows-only).
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+          import { spawnSync } from 'node:child_process';
+          const mode = process.argv[2], win = process.platform === 'win32';
+          const MARK = win ? 'C:\\Users\\Public\\why-marker.txt' : path.join(process.env.WHY_BIN, 'why-marker.txt');
+          const INJECT = `a man holding a 12" vinyl record & echo PWNED>${MARK} & rem`;
+          const fail = (m) => { console.error(`FAIL: ${m}`); process.exit(1); };
+          const logs = () => { try { return fs.readFileSync(path.join(process.env.WHY_BIN, 'why-log.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+          const bin = (n) => path.join(process.env.WHY_BIN, win ? `${n}.cmd` : n);
+          if (mode === 'shim' && !win) console.log('shim: a .cmd launcher is Windows only (skipped here)');
+          else if (mode === 'shim') {
+            const { shimCommand, shimTarget } = await import(pathToFileURL(process.env.PLATFORM_MJS).href);
+            const target = shimTarget(bin('claude'));
+            if (!target || !/fake-claude[\\/]cli\.js$/.test(target)) fail(`the pnpm launcher's program was not found: ${target}`);
+            const [cmd, args, opts] = shimCommand(bin('claude'), ['-p', INJECT, 'C:\\Users\\u\\Sounds & FX']);
+            if (/cmd\.exe$/i.test(cmd) || opts.windowsVerbatimArguments) fail(`it still goes through cmd.exe: ${cmd} ${args.join(' ')}`);
+            const r = spawnSync(cmd, args, { input: 'x', encoding: 'utf8', timeout: 30000 });
+            const got = logs().at(-1);
+            if (!got || got.argv.slice(-2).join('|') !== `${INJECT}|C:\\Users\\u\\Sounds & FX`) fail(`the words did not arrive as they were: ${JSON.stringify(got)} ${r.stderr}`);
+            if (fs.existsSync(MARK)) fail('cmd.exe ran the words: the marker file exists');
+            try { shimCommand(bin('bare')); fail('a bare .cmd was started'); } catch (e) { if (e.key !== 'cmdShim' || !/cmd\.exe/.test(e.message)) fail(`a bare .cmd refused without its reason: ${e.message}`); }
+            console.log('shim: the launcher ran its own program, «&» and «>» stayed words, a bare .cmd was refused by name');
+          } else if (mode === 'live') {
+            // «المونتير» on the live studio with that claude: a plan's limit ends the turn «limit» with when it resets
+            const url = process.env.URL.replace(/\/+$/, ''), clip = encodeURIComponent(process.env.CLIP);
+            const call = async (p, body, method) => { const r = await fetch(url + p, { method: method || (body ? 'POST' : 'GET'), headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
+            const put = await call(`/x/${clip}/api/ai`, { provider: 'claude' }, 'PUT');
+            if (put.status !== 200) fail(`choosing Claude: ${put.status} ${JSON.stringify(put.body)}`);
+            const st = await call(`/x/${clip}/api/assistant?fresh=1`);
+            if (!st.body || !st.body.installed || !st.body.loggedIn || st.body.cmdShim) fail(`the fake claude behind its launcher is not ready: ${JSON.stringify(st.body && { status: st.status, installed: st.body.installed, loggedIn: st.body.loggedIn, cmdShim: st.body.cmdShim })}`);
+            const sent = await call(`/x/${clip}/api/assistant/send`, { text: 'كبّر الكابشن & echo PWNED' });
+            if (sent.status !== 202) fail(`send: ${sent.status} ${JSON.stringify(sent.body)}`);
+            let last = null;
+            for (let i = 0; i < 120; i++) {
+              await new Promise((r) => setTimeout(r, 500));
+              const now = await call(`/x/${clip}/api/assistant`);
+              last = now.body && now.body.messages && now.body.messages.at(-1);
+              if (now.body && !now.body.busy && last && last.role === 'assistant') break;
+            }
+            if (!last || last.error !== 'limit' || last.resetAt !== 1893456000000 || last.text) fail(`the turn did not end «limit» with its reset time: ${JSON.stringify(last)}`);
+            const turn = logs().filter((l) => l.as === 'claude' && l.argv.includes('-p')).at(-1);
+            if (!turn) fail('the studio never started the fake claude');
+            if (win && (!turn.argv.includes('--append-system-prompt-file') || turn.argv.includes('--append-system-prompt'))) fail(`Claude's instructions were not in a file: ${JSON.stringify(turn.argv.slice(0, 40))}`);
+            if (!win && !turn.argv.includes('--append-system-prompt')) fail('the Mac lost its instructions argument');
+            if (fs.existsSync(MARK)) fail('cmd.exe ran his words: the marker file exists');
+            console.log(`live: «المونتير» ended «limit», reset ${new Date(last.resetAt).toISOString()}, instructions ${win ? 'in a file' : 'as an argument (the Mac)'}, no raw line shown`);
+          } else if (mode === 'picture') {
+            const out = path.join(process.env.CODEX_HOME, 'pic.png');
+            const r = spawnSync(process.execPath, [process.env.GEN, '-o', out, '-a', 'square', INJECT], { env: { ...process.env, MOHRER_CODEX: bin('codex') }, encoding: 'utf8', timeout: 120000 });
+            if (r.status !== 0 || !fs.existsSync(out)) fail(`the picture tool: exit ${r.status} ${r.stderr}`);
+            const run = logs().filter((l) => l.as === 'codex' && l.argv[0] === 'exec').at(-1);
+            if (!run || run.argv.slice(-2).join(' ') !== '-- -' || run.argv.some((x) => x.includes('vinyl'))) fail(`the request was an argument: ${JSON.stringify(run && run.argv)}`);
+            if (!run.stdin.includes(INJECT)) fail('the request did not arrive on stdin whole');
+            if (fs.existsSync(MARK)) fail('cmd.exe ran the picture\'s words: the marker file exists');
+            console.log('picture: the request on stdin, in no argument, the picture made');
+          } else fail(`no mode ${mode}`);
+          JS
+          C="$(cygpath -w "$HOME/why_check.mjs")"
+          node "$C" shim
+          # the live studio with the .cmd claude, then the studio as it was
+          bash "$S/studio.sh" stop
+          MOHRER_CLAUDE="$WHY_BIN\\claude.cmd" bash "$S/start.sh" --no-open
+          export URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          node "$C" live
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
+          node "$C" picture
+          test ! -e /c/Users/Public/why-marker.txt
       - name: desktop shortcut
         shell: pwsh
         run: |
@@ -920,9 +1043,892 @@ jobs:
           ls "$HOME/edit-studio-old"
       - name: the guide is on the Desktop
         run: ls -la "$HOME/Desktop/" && test -f "$HOME/Desktop/دليل B Studio.pdf"
+      # ── audit 1.0.19 batch E (1.0.22): the features themselves on Windows, not the install alone. Last in this job: a first run that
+      # stumbles here leaves every step above with its own result ──
+      - name: «مقطع جديد» pressed on the page (audit 1.0.19, P7) — its button in Chrome, Windows' own file window with the file picked in it as a hand does, the sheet, and the clip opens with its name and picture
+        # the 1.0.14 step above opens a clip through the route alone: here the page's own button is pressed (puppeteer-core), the
+        # studio shows its file window (OpenFileDialog, titled in Arabic: the page's language), pick_file.py types the path in the
+        # window's file-name box and presses «Open», the sheet is answered «تعديل يدوي فقط» with no face
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          mkdir -p "$HOME/Videos"
+          cp "$HOME/clip-test.mp4" "$HOME/Videos/مقطع ضغطة (خام).mp4"
+          cat > "$HOME/pick_file.py" <<'PY'
+          import ctypes, ctypes.wintypes as W, json, sys, time
+          # The file picked in Windows' own «open» window the way a hand does it: the window found by its title, the path typed in its
+          # file-name box, «Open» pressed; then the window is gone. argv: the window's title, the file's full path. Windows only.
+          title, path = sys.argv[1], sys.argv[2]
+          u = ctypes.windll.user32
+          for name, args in (('GetWindowTextLengthW', [W.HWND]), ('GetWindowTextW', [W.HWND, W.LPWSTR, ctypes.c_int]), ('GetClassNameW', [W.HWND, W.LPWSTR, ctypes.c_int]),
+                             ('IsWindow', [W.HWND]), ('IsWindowVisible', [W.HWND]), ('GetDlgCtrlID', [W.HWND]), ('GetParent', [W.HWND])):
+              getattr(u, name).argtypes = args
+          u.GetParent.restype = W.HWND
+          u.SendMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
+          u.SendMessageW.restype = W.LPARAM
+          u.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
+          WM_SETTEXT, WM_GETTEXT, WM_COMMAND, BM_CLICK, IDOK = 0x000C, 0x000D, 0x0111, 0x00F5, 1
+          ENUM = ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+
+
+          def text(h):
+              n = u.GetWindowTextLengthW(h); b = ctypes.create_unicode_buffer(n + 1); u.GetWindowTextW(h, b, n + 1)
+              return b.value
+
+
+          def cls(h):
+              b = ctypes.create_unicode_buffer(256); u.GetClassNameW(h, b, 256)
+              return b.value
+
+
+          def tops():
+              found = []
+              u.EnumWindows(ENUM(lambda h, _: (found.append(h) if u.IsWindowVisible(h) else None) or True), 0)
+              return found
+
+
+          def kids(h):
+              found = []
+              u.EnumChildWindows(h, ENUM(lambda c, _: found.append(c) or True), 0)
+              return found
+
+
+          t0, win = time.time(), None
+          while time.time() - t0 < 60 and not win:
+              win = next((h for h in tops() if text(h) == title), None)
+              time.sleep(0.25)
+          if not win:
+              raise SystemExit('no window «%s» on the screen. Visible: %s' % (title, json.dumps([text(h) for h in tops() if text(h)], ensure_ascii=False)))
+          time.sleep(1.0)                                                  # its controls are made a moment after it shows
+          ks = kids(win)
+          # the file-name box: the Edit inside the ComboBox (the search box at the top has another parent)
+          edits = [k for k in ks if cls(k) == 'Edit']
+          box = next((k for k in edits if cls(u.GetParent(k)) == 'ComboBox'), edits[0] if edits else None)
+          if not box:
+              raise SystemExit('no file-name box in the window: ' + json.dumps([(cls(k), u.GetDlgCtrlID(k), text(k)) for k in ks], ensure_ascii=False))
+          buf = ctypes.create_unicode_buffer(path)
+          u.SendMessageW(box, WM_SETTEXT, 0, ctypes.addressof(buf))
+          got = ctypes.create_unicode_buffer(1024)
+          u.SendMessageW(box, WM_GETTEXT, 1024, ctypes.addressof(got))
+          print('typed:', got.value)
+          if got.value != path:
+              raise SystemExit('the box did not take the path')
+          ok = next((k for k in ks if cls(k) == 'Button' and u.GetDlgCtrlID(k) == IDOK), None)
+          if ok:
+              u.PostMessageW(ok, BM_CLICK, 0, 0)
+          else:
+              u.PostMessageW(win, WM_COMMAND, IDOK, 0)
+          t0 = time.time()
+          while time.time() - t0 < 20 and u.IsWindow(win) and u.IsWindowVisible(win):
+              time.sleep(0.25)
+          if u.IsWindow(win) and u.IsWindowVisible(win):
+              raise SystemExit('the window stayed open after «Open»: ' + json.dumps([(cls(k), u.GetDlgCtrlID(k), text(k)) for k in kids(win)], ensure_ascii=False)[:1500])
+          print('picked:', path)
+          PY
+          cat > "$HOME/new_clip_press.cjs" <<'JS'
+          // P7 (audit 1.0.19): «مقطع جديد» pressed on the page as he presses it. The studio as installed, in Chrome (puppeteer-core):
+          // the library page, its «مقطع جديد» button (offered on this system), the system's own file window (PICK: a program started
+          // right after the press that picks VIDEO in that window, as a hand would), the sheet answered («تعديل يدوي فقط», no face),
+          // and the clip opens in the page: its name from the file («(خام)» taken off), its picture served.
+          // env: PP (puppeteer-core's folder), CHROME, URL (the running studio), VIDEO (the file), PICK (optional: the picker, a JSON
+          // array [program, ...args]; without it the studio answers the window itself, MOHRER_RAW_PICK, for a trial off Windows)
+          const pptr = require(process.env.PP);
+          const path = require('node:path');
+          const { spawn } = require('node:child_process');
+
+          const url = process.env.URL.replace(/\/+$/, '');
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const get = async (p) => { const r = await fetch(url + p); return { status: r.status, body: r.headers.get('content-type') && r.headers.get('content-type').includes('json') ? await r.json() : await r.arrayBuffer() }; };
+          const want = path.basename(process.env.VIDEO, path.extname(process.env.VIDEO)).replace(/\s*\(\s*خام\s*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+
+          (async () => {
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
+            try {
+              const page = await b.newPage();
+              await page.setViewport({ width: 1280, height: 800 });
+              const errors = [];
+              page.on('pageerror', (e) => errors.push(e.message));
+              await page.goto(`${url}/?test=1`, { waitUntil: 'domcontentloaded' });
+              await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+              const btn = await page.$('.hd-new');
+              if (!btn || !(await btn.isVisible())) return fail('no «مقطع جديد» button on the page on this system');
+              console.log('the button:', await page.$eval('.hd-new', (e) => e.textContent.trim()));
+              await btn.click();
+              if (process.env.PICK) {
+                const [prog, ...args] = JSON.parse(process.env.PICK);
+                const picked = await new Promise((res) => {
+                  const c = spawn(prog, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+                  let out = '';
+                  c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; });
+                  c.on('error', (e) => res({ code: -1, out: String(e) }));
+                  c.on('exit', (code) => res({ code, out }));
+                });
+                console.log('the file window:', picked.out.trim());
+                if (picked.code !== 0) return fail('the file could not be picked in the window');
+              }
+              await page.waitForSelector('.raw-sheet .raw-modes', { visible: true, timeout: 60000 });
+              await page.click('.raw-face[data-face="none"]');
+              await page.click('.raw-mode[data-mode="manual"]');
+              console.log('the sheet:', await page.$eval('.dialog .dlg-primary', (e) => e.textContent.trim()));
+              await page.click('.dialog .dlg-primary');
+              await page.waitForFunction(() => !!new URL(location.href).searchParams.get('p'), { timeout: 120000, polling: 200 });
+              const folder = await page.evaluate(() => new URL(location.href).searchParams.get('p'));
+              await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+              const p = await page.evaluate(() => { const s = window.__mohrer.store.state.p; return { name: s.name, spine: s.spine.length, assets: Object.entries(s.assets).map(([id, a]) => ({ id, kind: a.kind })) }; });
+              console.log('opened:', folder, JSON.stringify(p));
+              if (p.name !== want) return fail(`the clip's name is «${p.name}», not «${want}»`);
+              const v = p.assets.find((a) => a.kind === 'video');
+              if (!p.spine || !v) return fail('the clip has no video on its timeline');
+              // its first picture, once its preview copy is made (a few seconds after it opens)
+              let still = null;
+              for (let i = 0; i < 120 && !(still && still.status === 200); i++) { if (i) await sleep(1000); still = await get(`/x/${encodeURIComponent(folder)}/api/still?asset=${encodeURIComponent(v.id)}&n=0`); }
+              console.log('its picture:', still.status, still.body.byteLength || 0, 'bytes');
+              if (still.status !== 200 || !(still.body.byteLength > 1000)) return fail('no picture of the clip');
+              if (errors.length) console.log('page errors:', errors.join(' | '));
+              await b.close();
+              console.log('PASSED');
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          V="$(cygpath -w "$HOME/Videos/مقطع ضغطة (خام).mp4")"
+          PICK="$(PYTHONIOENCODING=utf-8 python -c "import json, sys; print(json.dumps([sys.executable, sys.argv[1], 'اختر الفيديوهات', sys.argv[2]], ensure_ascii=False))" "$(cygpath -w "$HOME/pick_file.py")" "$V")"
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$V" PICK="$PICK" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/new_clip_press.cjs")"
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+      - name: an export the way he makes it (audit 1.0.19, P1, and P8's export case) — a 35 s clip reversed (HEVC on the processor) and slowed to 0.5× from its menu, a drawing by the studio's own tool, «تصدير» pressed, closing asks while it runs; then the file — every frame, its sound, the drawing in its seconds only, the picture backwards at half speed
+        # the source gets 7 levels brighter every second, so the brightness of each second of the file says which second of the
+        # source it shows; the drawing goes through tools/studio-mcp.mjs `draw`, the way Claude draws one
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          ffmpeg -nostdin -v error -y -f lavfi -i "color=c=black:s=360x640:r=30:d=35,format=yuv420p,geq=lum='clip(T*7\,0\,255)':cb=128:cr=128" -f lavfi -i "sine=f=330:d=35" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/ramp35.mp4"
+          cat > "$HOME/export_check.cjs" <<'JS'
+          // P1 (audit 1.0.19) and the export case of P8: the studio's main output on this machine, made the way he makes it. The
+          // studio as installed, in Chrome driven by puppeteer-core: a 35 s clip whose picture gets brighter every second (and a tone)
+          // becomes a clip; «اعكسه» (over 30 s: the HEVC copy) and «السرعة» → 0.5× from the clip's own menu; a drawing through the
+          // studio's own tool (studio-mcp.mjs draw, as Claude calls it); «تصدير» pressed in the page, and closing the window while it
+          // runs asks. Then the file itself: every frame, as long as the timeline, its sound heard, the drawing in its seconds and
+          // nowhere else, and the picture running backwards at half speed (the brightness of each second read back).
+          // env: PP (puppeteer-core's folder), CHROME, URL (the running studio), VIDEO (the clip), NAME (its name), MCP (studio-mcp.mjs),
+          // STEPS (what is done to the clip before the export: 'reverse,speed,draw' when not given)
+          const pptr = require(process.env.PP);
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { spawn, spawnSync } = require('node:child_process');
+
+          const url = process.env.URL.replace(/\/+$/, '');
+          const STEPS = (process.env.STEPS || 'reverse,speed,draw').split(',');
+          const srcDur = Number(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', process.env.VIDEO], { encoding: 'utf8' }).stdout);
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const secs = (t0) => Math.round((Date.now() - t0) / 1000);
+          const call = async (p, body, method) => {
+            const r = await fetch(url + p, { method: method || (body === undefined ? 'GET' : 'POST'), headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+            return { status: r.status, body: await r.json().catch(() => ({})) };
+          };
+          async function until(fn, ms, what) {
+            const t0 = Date.now();
+            for (let last = 0; ; await sleep(500)) {
+              const v = await fn();
+              if (v) return v;
+              if (Date.now() - t0 > ms) throw new Error(`${what}: not in ${Math.round(ms / 1000)} s`);
+              if (Date.now() - last > 30000) { last = Date.now(); console.log(`  … ${what}: ${secs(t0)} s`); }
+            }
+          }
+
+          // the studio's tool server, spoken to the way Claude Code speaks to it (JSON-RPC lines on its stdin)
+          function tools(env) {
+            const c = spawn(process.execPath, [process.env.MCP], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+            let buf = '', id = 0, err = '';
+            const waiters = new Map();
+            c.stderr.on('data', (d) => { err += d; });
+            c.stdout.on('data', (d) => {
+              buf += d;
+              for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+                const line = buf.slice(0, i); buf = buf.slice(i + 1);
+                let m = null;
+                try { m = JSON.parse(line); } catch { continue; }
+                const w = waiters.get(m.id);
+                if (w) { waiters.delete(m.id); w(m); }
+              }
+            });
+            const rpc = (method, params) => new Promise((r) => { id += 1; waiters.set(id, r); c.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); });
+            return {
+              hello: () => rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'windows-check', version: '0' } }),
+              async call(name, args) {
+                const r = await rpc('tools/call', { name, arguments: args });
+                const content = (r.result && r.result.content) || [];
+                return { text: content.filter((x) => x.type === 'text').map((x) => x.text).join('\n'), isError: !!(r.result && r.result.isError), log: err.slice(-800) };
+              },
+              stop: () => c.kill(),
+            };
+          }
+
+          // one frame of the file at `t` seconds: [mean luma of a corner box, share of strongly red pixels]
+          function frameAt(file, t, W, H) {
+            const rgb = spawnSync('ffmpeg', ['-v', 'error', '-ss', t.toFixed(3), '-i', file, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 64 << 20 }).stdout;
+            if (!rgb || rgb.length < W * H * 3) throw new Error(`no frame at ${t} s`);
+            let red = 0, y = 0, n = 0;
+            for (let i = 0; i < W * H; i++) {
+              const r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2];
+              if (r > 150 && g < 90 && b < 90) red++;
+              const px = i % W, py = (i / W) | 0;
+              if (px < W / 8 && py < H / 8) { y += 0.2126 * r + 0.7152 * g + 0.0722 * b; n++; }     // the corner the drawing never reaches
+            }
+            return [y / n, red / (W * H)];
+          }
+
+          (async () => {
+            // the graphics card the runner has (Windows' software one) allowed, as the studio's own hidden page allows it (look-page.mjs)
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
+            try {
+              // 1 the clip
+              const st = await call('/api/raw/start', { path: process.env.VIDEO, name: process.env.NAME, mode: 'manual', face: 'none' });
+              console.log('start', st.status, JSON.stringify(st.body));
+              if (st.status !== 202 || !st.body.folder) return fail('the clip did not start');
+              const folder = st.body.folder, x = `/x/${encodeURIComponent(folder)}`;
+              await until(async () => { const l = (await call('/api/projects')).body; const e = (l.projects || []).find((p) => p.folder === folder); return e && e.status !== 'preparing' && e.phase !== 'running'; }, 300000, 'the clip ready');
+              const dir = path.join((await call('/api/info')).body.root, folder);
+              console.log('the clip:', dir);
+
+              // 2 its page
+              const page = await b.newPage();
+              // puppeteer keeps every request it sees: the export's frames (8 MB each) would fill its memory (the e2e harness does the same)
+              try { await page._client().send('Network.disable'); } catch { /* another puppeteer */ }
+              await page.setViewport({ width: 1280, height: 800 });
+              const errors = [];
+              page.on('pageerror', (e) => errors.push(e.message));
+              await page.goto(`${url}/?p=${encodeURIComponent(folder)}&test=1`, { waitUntil: 'domcontentloaded' });
+              await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+              console.log('the page draws with:', await page.evaluate(() => { const g = document.createElement('canvas').getContext('webgl2'); const d = g && g.getExtension('WEBGL_debug_renderer_info'); return g ? (d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'webgl2') : 'no webgl2'; }));
+              const hook = (fn, ...a) => page.evaluate(`(${fn})(window.__mohrer, ...${JSON.stringify(a)})`);
+              const cid = await hook((m) => m.store.state.p.spine[0].id);
+              const clip = () => hook((m, id) => { const c = m.store.state.p.spine.find((s) => s.id === id); return c ? { rev: !!c.rev, speed: c.speed || 1, asset: c.asset } : null; }, cid);
+              const menu = async (labels) => {
+                await hook((m) => { document.querySelectorAll('.ex-mini').forEach((e) => e.remove()); m.timeline.fit(true); });
+                await sleep(300);
+                const r = await hook((m, id) => m.geom.clip(id), cid);
+                await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2, { button: 'right' });
+                for (const l of labels) {
+                  await page.waitForSelector('.menu .menu-item', { visible: true, timeout: 10000 });
+                  const ok = await page.evaluate((s) => { const e = [...document.querySelectorAll('.menu .menu-item')].find((i) => i.textContent.trim().startsWith(s)); if (e) e.click(); return !!e; }, l);
+                  if (!ok) throw new Error(`no menu item «${l}»: ${await page.evaluate(() => [...document.querySelectorAll('.menu .menu-item')].map((i) => i.textContent.trim()).join(' | '))}`);
+                }
+              };
+
+              // 3 «اعكسه»: over 30 s the copy is HEVC 10-bit (on Windows libx265 on the processor)
+              let t0 = Date.now();
+              const was = await clip();
+              if (STEPS.includes('reverse')) {
+              await menu(['اعكسه']);
+              await until(async () => (await clip()).rev, 900000, 'the reversed copy');
+              const rev = await clip();
+              console.log(`reversed in ${secs(t0)} s:`, JSON.stringify(rev));
+              if (rev.asset === was.asset) return fail('the reversed clip shows the same file');
+              const reversed = await hook((m, a) => { const x = m.store.state.p.assets[a]; return x.master || x.file; }, rev.asset);   // the copy made, not its preview
+              const codec = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt', '-of', 'csv=p=0', path.join(dir, reversed)], { encoding: 'utf8' }).stdout.trim();
+              console.log('the reversed copy:', reversed, codec);
+              }
+
+              // 4 «السرعة» → 0.5×
+              if (STEPS.includes('speed')) {
+                await menu(['السرعة', '0.5×']);
+                await until(async () => (await clip()).speed === 0.5, 60000, 'the speed on the clip');
+                console.log('0.5× on the clip');
+              }
+
+              // 5 a drawing, through the studio's own tool: a red bar that grows over its first second, at 1–3 s
+              const BAR = 'function draw(g, t, k) {\n  const p = k.map(t, 0, 1, 0.05, 1, \'out\');\n  g.fillStyle = \'#ff2020\';\n  g.fillRect(k.W * 0.2, k.H * 0.45, k.W * 0.6 * p, k.H * 0.1);\n}';
+              t0 = Date.now();
+              const mcp = tools({ STUDIO_DIR: dir, STUDIO_BASE: url + x, STUDIO_SOUNDS: '' });
+              await mcp.hello();
+              const d = await mcp.call('draw', { name: 'شريط أحمر', at: 1, dur: 2, code: BAR });
+              mcp.stop();
+              console.log(`draw (${secs(t0)} s):`, d.text.split('\n').slice(0, 2).join(' | '));
+              const item = (/item (x_\w+)/.exec(d.text) || [])[1];
+              if (d.isError || !item) return fail(`the drawing: ${d.text} ${d.log}`);
+              await until(() => hook((m, id) => m.store.state.p.attached.some((a) => a.id === id), item), 60000, 'the drawing on the page');
+
+              // 6 «تصدير», the way he presses it
+              await hook((m) => m.sync && m.sync.flush && m.sync.flush());
+              const L = await hook((m, id) => { const p = m.store.state.p, l = m.store.state.L.index.get(id); return { total: m.store.state.L.total, fps: p.fps[0] / p.fps[1], W: p.W || p.width, H: p.H || p.height, at: l ? [l.start, l.end] : null }; }, item);
+              console.log('the timeline:', JSON.stringify(L));
+              const T = await hook((m) => ({ exp: m.t('hd.export'), go: m.t('ex.go'), done: m.t('ex.done'), review: m.t('pf.title'), anyway: m.t('pf.anyway') }));
+              // a real mouse press on the button (Chrome asks before closing only a page he has pressed in)
+              const press = async (label) => {
+                const el = (await page.evaluateHandle((s) => [...document.querySelectorAll('button')].find((x) => x.offsetParent !== null && x.textContent.trim() === s) || null, label)).asElement();
+                if (!el) return false;
+                await el.click();
+                return true;
+              };
+              if (!(await press(T.exp))) return fail(`no «${T.exp}» button`);
+              await page.waitForFunction(() => document.querySelector('#ex-name') && document.querySelector('#ex-name').value.length > 0, { timeout: 20000 });
+              const name = await page.$eval('#ex-name', (e) => e.value);
+              t0 = Date.now();
+              if (!(await press(T.go))) return fail(`no «${T.go}» in the export sheet`);
+              const title = () => page.evaluate(() => (document.querySelector('.ex-dialog .dialog-title, .dialog-title') || {}).textContent || '');
+              await until(async () => {
+                if ((await title()) === T.review) { console.log('the checks:', await page.evaluate(() => [...document.querySelectorAll('.dialog li')].map((e) => e.textContent).join(' | '))); await press(T.anyway); }
+                return page.evaluate(() => { const r = document.querySelector('.ex-run'); return !!r && !r.hidden; });
+              }, 300000, 'the export started');
+              console.log('exporting', name);
+              // P8: closing the window while the export runs (its frames going out) asks first, the line names the export, «stay» keeps it going
+              await until(() => page.evaluate(async () => (await import('/js/ui/close-guard.js')).losses(window.__mohrer.ctx).includes('export')), 120000, 'the export running in the page');
+              let asked = null;
+              const onDialog = (dl) => { asked = dl.type(); dl.dismiss().catch(() => {}); };
+              page.on('dialog', onDialog);
+              await page.close({ runBeforeUnload: true });
+              await sleep(1500);
+              page.off('dialog', onDialog);
+              console.log('closing during the export:', JSON.stringify({ asked, closed: page.isClosed() }));
+              if (asked !== 'beforeunload' || page.isClosed()) return fail('closing during the export did not ask');
+              const line = await until(() => page.evaluate(() => [...document.querySelectorAll('.toast')].map((e) => e.textContent).find((x) => /التصدير/.test(x)) || ''), 10000, 'the line naming the export');
+              console.log('the line:', line);
+              await until(async () => {
+                const w = await page.evaluate(() => [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent));
+                if ((await title()) !== T.done && w.length && !(await page.evaluate(() => { const r = document.querySelector('.ex-run'); return !!r && !r.hidden; }))) throw new Error('the export stopped: ' + w.join(' | '));
+                return (await title()) === T.done;
+              }, 1800000, 'the export');
+              console.log(`exported in ${secs(t0)} s; the sheet says:`, await page.evaluate(() => [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent).join(' | ') || '(nothing to warn)'));
+              if (errors.length) console.log('page errors:', errors.join(' | '));
+
+              // 7 the file
+              const out = path.join(dir, 'out');
+              const file = path.join(out, `${name}.mp4`);
+              console.log('out/:', fs.readdirSync(out).join(' | '));
+              if (!fs.existsSync(file) || fs.readdirSync(out).some((f) => f.endsWith('.part'))) return fail('no finished file');
+              const pr = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,nb_frames,duration,width,height', '-of', 'json', file], { encoding: 'utf8' }).stdout).streams;
+              const v = pr.find((s) => s.codec_type === 'video'), a = pr.find((s) => s.codec_type === 'audio');
+              const want = L.total / L.fps;
+              console.log('the file:', JSON.stringify(pr), '| the timeline', L.total, 'frames,', want.toFixed(2), 's');
+              if (!v || v.codec_name !== 'h264' || Number(v.nb_frames) !== L.total) return fail('not every frame (or not H.264)');
+              if (Math.abs(Number(v.duration) - want) > 0.1 || !a || Math.abs(Number(a.duration) - want) > 0.15) return fail('the picture or the sound is not as long as the timeline');
+              const vol = spawnSync('ffmpeg', ['-v', 'info', '-ss', '5', '-t', String(want - 10), '-i', file, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
+              const mean = Number((/mean_volume: (-?[\d.]+) dB/.exec(vol.stderr) || [])[1]);
+              console.log('its sound:', mean, 'dB');
+              if (!(mean > -60)) return fail('the sound is silent');
+              // the drawing: in its seconds (the bar full by its middle), never before or after
+              const [W, H] = [Number(v.width), Number(v.height)];
+              const [s0, s1] = L.at ? [L.at[0] / L.fps, L.at[1] / L.fps] : [1, 3];
+              const red = [s0 - 0.5, s0 + 1.5, s1 + 0.5].map((t) => frameAt(file, t, W, H)[1]);
+              console.log(`the drawing (${s0.toFixed(2)}–${s1.toFixed(2)} s), share of red: before ${red[0].toFixed(4)}, in it ${red[1].toFixed(4)}, after ${red[2].toFixed(4)}`);
+              if (!(red[1] > 0.02 && red[0] < 0.001 && red[2] < 0.001)) return fail('the drawing is not in its seconds');
+              // the source got 7 levels brighter a second (video levels 0 → 245 over 35 s, read back as full-range RGB): at export
+              // second e the picture is the source's second e × speed, or (reversed) its length less that: brightest first, then darker
+              const { rev: back, speed } = await clip();
+              const ts = []; for (let e = 4; e < want - 1; e += 6) ts.push(e);
+              const ys = ts.map((e) => frameAt(file, e, W, H)[0]);
+              const exp = ts.map((e) => { const s = back ? srcDur - e * speed : e * speed; return Math.min(255, Math.max(0, ((7 * s - 16) * 255) / 219)); });
+              console.log(`brightness by second (${back ? 'backwards' : 'forwards'}, ${speed}×):`, ts.map((e, i) => `${e}s ${ys[i].toFixed(0)}/${exp[i].toFixed(0)}`).join(' · '));
+              const way = back ? -1 : 1;
+              if (!(way * (ys[ys.length - 1] - ys[0]) > 100)) return fail(`the picture does not run ${back ? 'backwards' : 'forwards'}`);
+              if (ys.some((y, i) => i && way * (y - ys[i - 1]) < -3)) return fail('the brightness turns back somewhere: not one way all along');
+              if (ys.some((y, i) => exp[i] > 30 && exp[i] < 220 && Math.abs(y - exp[i]) > 25)) return fail(`not at ${speed}× (a second of the source is not where it should be)`);
+              await b.close();
+              console.log('PASSED');
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$(cygpath -w "$HOME/ramp35.mp4")" NAME='تصدير ويندوز كامل' MCP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/studio-mcp.mjs")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/export_check.cjs")"
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+      - name: the window raise takes any clip name (audit 1.0.19, S6) — «Ali’s vlog» is found by its title, and a name made to end PowerShell's quote runs nothing through the studio (it does in the form used before 1.0.22)
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          TITLE='Ali’s vlog'
+          PAGE="$(VIDEO="$(cygpath -w "$HOME/clip-test.mp4")" URL="$URL" TITLE="$TITLE" PYTHONIOENCODING=utf-8 python - <<'PY'
+          import json, os, time, urllib.parse, urllib.request
+          url = os.environ['URL'].rstrip('/')
+          def call(path, body=None):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'), headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.status, json.loads(r.read().decode('utf-8'))
+          st, j = call('/api/raw/start', {'path': os.environ['VIDEO'], 'name': os.environ['TITLE'], 'mode': 'manual', 'face': 'none'})
+          assert st == 202 and j.get('folder'), j
+          for _ in range(120):
+              e = next((p for p in call('/api/projects')[1].get('projects', []) if p.get('folder') == j['folder']), None)
+              if e and e.get('status') != 'preparing' and e.get('phase') != 'running':
+                  break
+              time.sleep(1)
+          print(j['folder'] + '\t' + url + '/?p=' + urllib.parse.quote(j['folder']))
+          PY
+          )"
+          FOLDER="${PAGE%%$'\t'*}"; PAGE="${PAGE#*$'\t'}"
+          echo "the clip «$FOLDER», its window: $PAGE"
+          bash -c ". '$S/_common.sh'; open_url '$PAGE'"
+          sleep 10
+          cat > "$HOME/raise_check.py" <<'PY'
+          import ctypes, ctypes.wintypes as W, json, os, subprocess, time, urllib.parse, urllib.request
+          # S6 (audit 1.0.19): the studio's window brought in front takes the page's title (the clip's name) as data. The clip «TITLE»
+          # was made and its window opened just before. 0: the control: the name below, put in the PowerShell text the way the studio
+          # did before 1.0.22, does run its command (so its not running proves something); 1: through the studio's own route that
+          # name runs nothing; 2: the window of «Ali’s vlog» is found by its title (AppActivate answers true), with the installed
+          # studio's own command. Whether Windows lets a program in the background take the front is Windows' call: printed, not asserted.
+          # env: URL, FOLDER (the clip's folder), TITLE (its name), BROWSER_MJS (the installed server/browser.mjs), NODE
+          url, folder, title = os.environ['URL'].rstrip('/'), os.environ['FOLDER'], os.environ['TITLE']
+          mark = os.path.join(os.environ['PUBLIC'], 's6-mark.txt')
+          evil = 'x’);New-Item -ItemType File -Path $env:PUBLIC\\s6-mark.txt;(’'
+          u = ctypes.windll.user32
+          u.GetForegroundWindow.restype = W.HWND
+          u.GetWindowTextW.argtypes = [W.HWND, W.LPWSTR, ctypes.c_int]
+          if os.path.exists(mark):
+              os.remove(mark)
+
+          # 0 the control
+          old = "(New-Object -ComObject WScript.Shell).AppActivate('%s') | Out-Null" % evil.replace("'", "''")
+          subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', old], timeout=60)
+          print('the old way, the name ran its command:', os.path.exists(mark))
+          assert os.path.exists(mark), 'the control did not run: the check below would prove nothing'
+          os.remove(mark)
+
+          # 1 the studio's route, the same name as a page's title
+          req = urllib.request.Request(url + '/x/' + urllib.parse.quote(folder) + '/api/window/raise', data=json.dumps({'title': evil}).encode('utf-8'),
+                                       headers={'content-type': 'application/json'}, method='POST')
+          with urllib.request.urlopen(req, timeout=30) as r:
+              got = json.loads(r.read().decode('utf-8'))
+          print('the studio:', got)
+          assert got.get('raised') is True, got
+          time.sleep(8)
+          print('the studio, the name ran a command:', os.path.exists(mark))
+          assert not os.path.exists(mark), 'the name ran a command'
+
+          # 2 «Ali’s vlog»: its window found by its title
+          code = ("const { spawnSync } = require('child_process'); import(require('url').pathToFileURL(process.env.BROWSER_MJS).href).then((m) => {"
+                  " const [c, a, o] = m.raiseWinCommand(process.env.T); const r = spawnSync(c, a, { ...o, stdio: 'inherit' }); process.exit(r.status === null ? 9 : r.status); })")
+          r = subprocess.run([os.environ.get('NODE', 'node'), '-e', code], env={**os.environ, 'T': title}, timeout=60)
+          b = ctypes.create_unicode_buffer(512)
+          u.GetWindowTextW(u.GetForegroundWindow(), b, 512)
+          print('AppActivate found «%s»: %s | in front now: «%s»' % (title, r.returncode == 0, b.value))
+          assert r.returncode == 0, 'the window «%s» was not found by its title' % title
+          print('PASSED')
+          PY
+          URL="$URL" FOLDER="$FOLDER" TITLE="$TITLE" BROWSER_MJS="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/server/browser.mjs")" NODE="$(cygpath -w "$(command -v node)")" PYTHONIOENCODING=utf-8 python "$(cygpath -w "$HOME/raise_check.py")"
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
+      - name: an Arabic user folder with a space (audit 1.0.19, P9) — everything installed again with HOME and USERPROFILE at «C:\Users\Public\مستخدم تجربة», the data falls back to C:/EditStudio, a clip from under that folder gives Arabic sentences, its face detector loads, and an export with a drawing comes out
+        # what this pass is not: Windows' own account stays runneradmin (its registry folders, its Desktop); what moves is all the
+        # studio reads from HOME and USERPROFILE (the skills, the Python and Node home folders, the transcription model's cache,
+        # the source videos). The first install's studio is stopped first: one studio at a time on this machine
+        run: |
+          OH="$HOME"
+          bash "$OH/Documents/video-edit/studio/app/scripts/studio.sh" stop
+          AW='C:\Users\Public\مستخدم تجربة'
+          A="$(cygpath -u "$AW")"
+          mkdir -p "$A/Videos"
+          cp "$OH/arabic.mp4" "$A/Videos/مقطع تجربة (خام).mp4"
+          cp "$OH/ramp35.mp4" "$A/Videos/فيديو للتصدير.mp4"
+          cat > "$OH/arabic_words.py" <<'PY'
+          import json, os, re, time, urllib.error, urllib.parse, urllib.request
+          # «مقطع جديد» with the whole montage on a clip of Arabic speech (ElevenLabs' «Saad», never the author's voice: «مرحبا، هذا
+          # اختبار التفريغ العربي في الاستوديو على ويندوز. نجرب الجمل والكابشن.»), with the default settings: the sentences come, in
+          # Arabic, and words of what was said are in them. env: URL (the running studio), VIDEO, NAME
+          url, video, name = os.environ['URL'].rstrip('/'), os.environ['VIDEO'], os.environ['NAME']
+
+
+          def call(path, body=None, timeout=60):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or '{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or '{}')
+              except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                  return 0, {'error': str(e)}
+
+
+          t0 = time.time()
+          st, j = call('/api/raw/start', {'path': video, 'name': name, 'mode': 'full', 'face': 'none'})
+          print('start', st, json.dumps(j, ensure_ascii=False))
+          assert st == 202 and j.get('folder'), j
+          q, c, last = '/x/' + urllib.parse.quote(j['folder']) + '/api/cut', {}, 0
+          while time.time() - t0 < 1800:
+              st, c = call(q)
+              if st == 200 and c.get('state') == 'ready':
+                  break
+              if st == 200 and (c.get('state') == 'stalled' or c.get('hearFail')):
+                  raise SystemExit('stopped: ' + json.dumps(c, ensure_ascii=False)[:1500])
+              if time.time() - last > 30:
+                  last = time.time(); print(f'  {int(last - t0)} s', c.get('state'), c.get('step'), c.get('pct'), flush=True)
+              time.sleep(2)
+          else:
+              raise SystemExit('not ready in 30 min: ' + json.dumps(c, ensure_ascii=False)[:1500])
+          said = ' '.join(i['text'] for i in c.get('islands', []) if i.get('text', '').strip())
+          print(f'sentences after {int(time.time() - t0)} s:', c.get('heard'), said)
+          words = said.split()
+          arabic = [w for w in words if re.search('[؀-ۿ]', w)]
+          assert words and len(arabic) >= 0.8 * len(words), 'not Arabic: ' + said
+          hits = [w for w in ('مرحبا', 'اختبار', 'التفريغ', 'العربي', 'ويندوز', 'الجمل', 'الكابشن') if w in said]
+          print('words of the sentence heard:', hits)
+          assert len(hits) >= 3, 'the sentence said is not there: ' + said
+          print('PASSED')
+          PY
+          export HOME="$A" USERPROFILE="$AW"
+          bash "$GITHUB_WORKSPACE/ملفات لكلود/install.sh"
+          set +e
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?
+          if [ $rc -eq 11 ]; then bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?; fi
+          set -e
+          echo "setup exit $rc"
+          [ $rc -eq 0 ]
+          # an HOME with letters that are not English: the montage data (and the studio in it) at C:/EditStudio
+          S=/c/EditStudio/studio/app/scripts
+          test -f "$S/start.sh"
+          bash "$S/start.sh" --no-open
+          ST="$(bash "$S/studio.sh" status)"; echo "$ST"
+          grep -q '^data: .*EditStudio' <<<"$ST"
+          URL="$(sed -n 's/^running: //p' <<<"$ST")"
+          /c/EditStudio/tools/py/Scripts/python.exe -c "import mediapipe as m; m.solutions.face_detection.FaceDetection(model_selection=1).close(); print('the face detector loads:', m.__version__)"
+          curl -s -m 30 "${URL}api/info" | python -c "import json, sys; d = json.load(sys.stdin); print('face', d.get('face')); assert d.get('face') is True"
+          URL="$URL" VIDEO="$(cygpath -w "$A/Videos/مقطع تجربة (خام).mp4")" NAME='جمل من مجلد عربي' PYTHONIOENCODING=utf-8 python "$(cygpath -w "$OH/arabic_words.py")"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          PP="$(cygpath -w "$OH/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$(cygpath -w "$A/Videos/فيديو للتصدير.mp4")" NAME='تصدير من مجلد عربي' STEPS=draw MCP="$(cygpath -w /c/EditStudio/studio/app/studio/tools/studio-mcp.mjs)" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$OH/export_check.cjs")"
+          bash "$S/studio.sh" stop
       - name: doctor (info)
         if: always()
         run: bash "$HOME/Documents/video-edit/studio/app/scripts/doctor.sh" || echo "doctor exit $?"
+      - name: stop
+        if: always()
+        run: bash "$HOME/Documents/video-edit/studio/app/scripts/studio.sh" stop || true
+      - name: server log
+        if: always()
+        run: tail -n 30 "$HOME/Documents/video-edit/studio/server.log" 2>/dev/null || true
+
+  # ── audit 1.0.19 P5 (1.0.22): a follower on an older public version updates the way they do ──
+  update-from-old:
+    # an older public release (OLD: 1.0.16, the first «one install»), as published (this repository's history), with a
+    # clip, its caption colour, a named version, a folder holding it and a setting; then «حدّث الاستوديو» as Claude runs it:
+    # update.sh brings this repository's main, setup.sh --install puts the new studio in place. Nothing may be lost
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      OLD: '1.0.16'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: keep line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      # (this job is about a follower's data, not a bare machine: the clean-machine job does that)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: ffmpeg
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+      - name: the old version installed, as it was published
+        run: |
+          C="$(git log --format=%H -1 --grep="^B Studio ${OLD}\$")"
+          echo "B Studio $OLD: $C"
+          test -n "$C"
+          O="$(cygpath -u "$RUNNER_TEMP")/old"
+          git worktree add "$O" "$C"
+          grep -q "\"version\": \"${OLD}\"" "$O/ملفات لكلود/edit-studio/manifest.json"
+          bash "$O/ملفات لكلود/install.sh"
+          set +e
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?
+          if [ $rc -eq 11 ]; then bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?; fi
+          echo "setup exit $rc"
+          exit $rc
+      - name: a follower's data on the old version — a clip, its caption colour, a named version, a folder holding it, a setting
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          bash "$S/start.sh" --no-open
+          ST="$(bash "$S/studio.sh" status)"; echo "$ST"
+          ffmpeg -nostdin -v error -y -f lavfi -i testsrc2=size=360x640:rate=30:duration=6 -f lavfi -i "sine=f=220:d=6" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/old-clip.mp4"
+          cat > "$HOME/update_data.py" <<'PY'
+          import hashlib, json, os, sys, time, urllib.error, urllib.parse, urllib.request
+          # P5 (audit 1.0.19): a follower's data across an update from an older public version. `make` on the OLD studio: a clip
+          # made from a video, its caption colour changed, a named version, a folder holding it, a setting in prefs.json; everything
+          # written down in SNAP. `check` on the NEW studio, after the follower's own update (update.sh, then setup.sh --install):
+          # the studio is the new version, and every one of those is still there, as it was.
+          # env: URL (the running studio), DATA (its data folder), NOW (its version, studio.sh status), SNAP (the file kept between the two),
+          # VIDEO (make), WANT (check: the version the update must bring)
+          url, D, snap = os.environ['URL'].rstrip('/'), os.environ['DATA'], os.environ['SNAP']
+          home, projects = os.path.join(D, 'home'), os.path.join(D, 'projects')
+          prefs = os.path.join(home, 'prefs.json')
+          CLIP, FOLDER, VERSION, COLOUR = 'مقطع قديم', 'سلسلة قديمة', 'قبل التحديث', '#00FF88'
+
+
+          def call(path, body=None, method=None, timeout=120):
+              data = None if body is None else json.dumps(body).encode('utf-8')
+              req = urllib.request.Request(url + path, data=data, headers={'content-type': 'application/json'}, method=method or ('GET' if data is None else 'POST'))
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or '{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or '{}')
+
+
+          q = lambda f: '/x/' + urllib.parse.quote(f)
+          digest = lambda f: hashlib.sha256(open(f, 'rb').read()).hexdigest()[:16]
+
+
+          def state():
+              """What a follower would miss: the library, the clip's edit and versions, its folder, every setting."""
+              st, lib = call('/api/projects')
+              assert st == 200, lib
+              entry = next((p for p in lib.get('projects', []) if p.get('name') == CLIP or p.get('folder') == CLIP), None)
+              assert entry, 'the clip is not in the library: ' + json.dumps(lib, ensure_ascii=False)[:600]
+              folder = entry['folder']
+              st, pr = call(q(folder) + '/api/project')
+              assert st == 200, pr
+              p = pr['project']
+              st, vs = call(q(folder) + '/api/versions')
+              names = sorted(v.get('name') or '' for v in (vs.get('versions') if isinstance(vs, dict) else vs) or [])
+              st, fo = call('/api/folders')                      # {folders: [{id, name}], of: {project folder: folder id}}
+              of = fo.get('of') or {}
+              folders = {f.get('name'): sorted(k for k, v in of.items() if v == f.get('id')) for f in fo.get('folders') or []}
+              media = {}
+              for a in p.get('assets', {}).values():
+                  for k in ('master', 'file'):
+                      f = a.get(k)
+                      if f and os.path.exists(os.path.join(projects, folder, f)):
+                          media[f] = digest(os.path.join(projects, folder, f))
+              return {'folder': folder, 'in': entry.get('in'), 'spine': len(p.get('spine', [])), 'colour': ((p.get('captions') or {}).get('style') or {}).get('active'),
+                      'versions': names, 'folders': folders, 'media': media,
+                      'prefs': json.load(open(prefs, encoding='utf-8-sig')) if os.path.exists(prefs) else {}}
+
+
+          def subset(old, new, at='prefs'):
+              """every key of old is in new with the same value (a newer version may add its own)"""
+              if isinstance(old, dict):
+                  assert isinstance(new, dict), f'{at}: was an object, now {new!r}'
+                  for k, v in old.items():
+                      assert k in new, f'{at}.{k}: lost'
+                      subset(v, new[k], f'{at}.{k}')
+              else:
+                  assert old == new, f'{at}: {old!r} → {new!r}'
+
+
+          mode = sys.argv[1]
+          if mode == 'make':
+              print('the old studio:', os.environ.get('NOW'))
+              st, j = call('/api/raw/start', {'path': os.environ['VIDEO'], 'name': CLIP, 'mode': 'manual', 'face': 'none'})
+              print('start', st, json.dumps(j, ensure_ascii=False))
+              assert st == 202 and j.get('folder'), j
+              folder = j['folder']
+              for _ in range(300):
+                  st, lib = call('/api/projects')
+                  e = next((p for p in lib.get('projects', []) if p.get('folder') == folder), None)
+                  if e and e.get('status') != 'preparing' and e.get('phase') != 'running':
+                      break
+                  time.sleep(1)
+              else:
+                  raise SystemExit('the clip never got ready')
+              st, cur = call(q(folder) + '/api/project')
+              pj = cur['project']
+              pj.setdefault('captions', {}).setdefault('style', {})['active'] = COLOUR
+              st, r = call(q(folder) + '/api/project', {'baseRev': cur['rev'], 'clientId': 'ci', 'label': 'ci', 'project': pj}, 'PUT')
+              assert st == 200, r
+              st, r = call(q(folder) + '/api/versions', {'name': VERSION})
+              print('a named version:', st, json.dumps(r, ensure_ascii=False)[:200])
+              assert st in (200, 201), r
+              st, fo = call('/api/folders', {'name': FOLDER})
+              assert st in (200, 201) and fo.get('id'), fo
+              st, r = call('/api/folders/put', {'project': folder, 'folder': fo['id']})
+              assert st == 200, r
+              st, r = call('/api/hints', {'seen': 'plan'}, 'PUT')
+              print('a hint seen:', st)
+              p = json.load(open(prefs, encoding='utf-8-sig')) if os.path.exists(prefs) else {}
+              p['ciKeep'] = {'note': 'every setting stays', 'n': 3}
+              with open(prefs, 'w', encoding='utf-8') as h:
+                  json.dump(p, h, ensure_ascii=False)
+              s = state()
+              assert s['colour'] == COLOUR and VERSION in s['versions'] and folder in (s['folders'].get(FOLDER) or []), s
+              assert s['media'], 'no media files to compare'
+              json.dump(s, open(snap, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+              print('before the update:', json.dumps(s, ensure_ascii=False))
+          elif mode == 'check':
+              print('the studio now:', os.environ['NOW'])
+              assert os.environ['NOW'] == os.environ['WANT'], f"not the new version: {os.environ['NOW']} (want {os.environ['WANT']})"
+              old, new = json.load(open(snap, encoding='utf-8')), state()
+              print('after the update:', json.dumps(new, ensure_ascii=False))
+              for k in ('folder', 'in', 'spine', 'colour', 'versions', 'media'):
+                  assert old[k] == new[k], f'{k}: {old[k]!r} → {new[k]!r}'
+              assert old['folders'].get(FOLDER) == new['folders'].get(FOLDER), (old['folders'], new['folders'])
+              subset(old['prefs'], new['prefs'])
+              print('every clip, edit, version, folder, file and setting is there')
+          else:
+              raise SystemExit('mode? ' + mode)
+          print('PASSED', mode)
+          PY
+          URL="$(sed -n 's/^running: //p' <<<"$ST")" DATA="$(cygpath -w "$(sed -n 's/^data: //p' <<<"$ST")")" NOW="$(sed -n 's/^version: //p' <<<"$ST")" SNAP="$(cygpath -w "$HOME/p5-snap.json")" VIDEO="$(cygpath -w "$HOME/old-clip.mp4")" PYTHONIOENCODING=utf-8 python "$(cygpath -w "$HOME/update_data.py")" make
+      - name: «حدّث الاستوديو» — update.sh from the public repository (it says there is a newer one, then brings it), then setup.sh --install with the studio still running
+        run: |
+          U="$HOME/.claude/skills/edit-studio/scripts/update.sh"
+          bash "$U" --check | tee "$HOME/check.txt"
+          grep -q "^newer ${OLD} " "$HOME/check.txt"
+          bash "$U"
+          WANT="$(python -c "import json; print(json.load(open('ملفات لكلود/edit-studio/manifest.json', encoding='utf-8'))['version'])")"
+          grep -q "\"version\": \"$WANT\"" "$HOME/.claude/skills/edit-studio/manifest.json"
+          set +e
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?
+          if [ $rc -eq 11 ]; then bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?; fi
+          echo "setup exit $rc"
+          exit $rc
+      - name: nothing is lost — the clip in its folder, its colour, its version, its files byte for byte, every setting; and the studio is the new version
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          bash "$S/start.sh" --no-open
+          ST="$(bash "$S/studio.sh" status)"; echo "$ST"
+          WANT="$(python -c "import json; print(json.load(open('ملفات لكلود/edit-studio/manifest.json', encoding='utf-8'))['version'])")"
+          URL="$(sed -n 's/^running: //p' <<<"$ST")" DATA="$(cygpath -w "$(sed -n 's/^data: //p' <<<"$ST")")" NOW="$(sed -n 's/^version: //p' <<<"$ST")" WANT="$WANT" SNAP="$(cygpath -w "$HOME/p5-snap.json")" PYTHONIOENCODING=utf-8 python "$(cygpath -w "$HOME/update_data.py")" check
+      - name: stop
+        if: always()
+        run: bash "$HOME/Documents/video-edit/studio/app/scripts/studio.sh" stop || true
+
+  # ── audit 1.0.19 P4 (1.0.22): a follower's own path on a machine with no Node, no Python, no ffmpeg ──
+  clean-machine:
+    # The runner is not a new PC, and this job says what it cannot be instead of pretending:
+    #  · Node and Python come with the image: they are uninstalled the way Windows lists them (Settings > Apps), the folders
+    #    the image keeps outside that list (its tool cache) are taken off every PATH and renamed; then checked: none answers.
+    #  · winget is not on this image (a follower's Windows 10/11 has it, «App Installer»): Microsoft's own PowerShell module
+    #    (Microsoft.WinGet.Client, Repair-WinGetPackageManager) puts it here first.
+    #  · the runner has no UAC prompt: a follower presses «نعم» on one for Node; nothing presses it here.
+    #  · Chrome stays (the image has it); a follower may have only Edge. Git Bash stays (Claude Code needs it on Windows).
+    # Then the follower's path itself: install.sh, the check (it names Node, Python and ffmpeg as missing), setup.sh --install
+    # (winget brings them), exit 11 → a new shell with the PATH Windows now has (Claude closed and opened), setup.sh --install
+    # again, and the studio does its main work on it: Arabic sentences from a new clip.
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: keep line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - name: a machine with no Node, Python or ffmpeg — the image's uninstalled, its tool cache off every PATH, checked; winget from Microsoft's module
+        shell: pwsh
+        run: |
+          $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          $want = '^(Node\.js|Python \d|Python Launcher)'
+          $listed = { @(Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match $want }) }
+          "installed: " + ((& $listed | ForEach-Object { $_.DisplayName }) -join ' | ')
+          # Python's own installers first (they take their parts with them), then every MSI left
+          foreach ($a in & $listed) { if ($a.QuietUninstallString -match '^"([^"]+)"\s*(.*)$') { "uninstall: $($a.DisplayName)"; Start-Process -FilePath $Matches[1] -ArgumentList $Matches[2] -Wait -NoNewWindow } }
+          foreach ($a in & $listed) { if ($a.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') { "uninstall (msi): $($a.DisplayName)"; Start-Process msiexec.exe -ArgumentList '/x', $a.PSChildName, '/qn', '/norestart' -Wait -NoNewWindow } }
+          $left = & $listed
+          if ($left) { throw "still installed: $(($left | ForEach-Object { $_.DisplayName }) -join ' | ')" }
+          # what the image keeps outside Windows' list: its tool cache (every Node and Python), the py launcher if one is left
+          foreach ($d in 'C:\hostedtoolcache\windows\Python', 'C:\hostedtoolcache\windows\node', 'C:\Program Files\nodejs') { if (Test-Path $d) { Rename-Item $d ((Split-Path $d -Leaf) + '.hidden') } }
+          foreach ($f in 'C:\Windows\py.exe', 'C:\Windows\pyw.exe') { if (Test-Path $f) { Rename-Item $f ((Split-Path $f -Leaf) + '.hidden') } }
+          Remove-Item 'HKLM:\SOFTWARE\Python', 'HKCU:\SOFTWARE\Python' -Recurse -Force -ErrorAction SilentlyContinue
+          $tools = 'node.exe', 'python.exe', 'python3.exe', 'py.exe', 'ffmpeg.exe', 'ffprobe.exe', 'npm.cmd', 'pip.exe'
+          $keep = { param($d) $d -and $d -notmatch 'hostedtoolcache|\\nodejs|\\npm$|\\Python\d' -and -not ($tools | Where-Object { Test-Path -LiteralPath (Join-Path $d $_) }) }
+          $clean = { param($list) ($list -split ';' | Where-Object { & $keep $_ }) -join ';' }
+          foreach ($s in 'Machine', 'User') { [Environment]::SetEnvironmentVariable('Path', (& $clean ([Environment]::GetEnvironmentVariable('Path', $s))), $s) }
+          # winget (Microsoft's module), and its folder on the user's PATH as on a home PC
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Microsoft.WinGet.Client -Force -Scope AllUsers -Repository PSGallery
+          Import-Module Microsoft.WinGet.Client
+          Repair-WinGetPackageManager -AllUsers -Force -Latest
+          $apps = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+          $u = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (($u -split ';') -notcontains $apps) { [Environment]::SetEnvironmentVariable('Path', ($u.TrimEnd(';') + ';' + $apps).TrimStart(';'), 'User') }
+          # every later step starts with this machine's PATH, as a program opened now would (and Git's tools)
+          $now = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          foreach ($g in 'C:\Program Files\Git\bin', 'C:\Program Files\Git\cmd') { if (($now -split ';') -notcontains $g) { $now = "$g;$now" } }
+          "PATH=$now" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:Path = $now
+          $wg = (Get-Command winget -ErrorAction SilentlyContinue).Source
+          if (-not $wg) { $wg = Join-Path $apps 'winget.exe' }
+          & $wg --version
+          if ($LASTEXITCODE -ne 0) { throw "winget does not answer ($wg)" }
+          $found =foreach ($n in 'node', 'python', 'python3', 'py', 'ffmpeg') { Get-Command $n -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch 'WindowsApps' } | ForEach-Object { "$n → $($_.Source)" } }
+          if ($found) { throw "still on this machine: $($found -join ' | ')" }
+          'no Node, Python or ffmpeg on this machine (the WindowsApps «python» left is the Store stub every Windows has)'
+      - name: install the two skills
+        run: bash "ملفات لكلود/install.sh"
+      - name: the check on this machine names what is missing — ffmpeg, Node, Python
+        run: |
+          set +e
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" > "$HOME/check.txt" 2>&1; rc=$?
+          set -e
+          cat "$HOME/check.txt"; echo "check exit $rc"
+          sed -n '/الناقص/,$p' "$HOME/check.txt" > "$HOME/missing.txt"
+          for t in 'أداة القص والصوت' 'Node' 'Python'; do grep -q "$t" "$HOME/missing.txt" || { echo "the check does not say «$t» is missing"; exit 1; }; done
+      - name: setup install as the follower runs it — winget brings Node, Python 3.12 and ffmpeg; on exit 11 a new shell with the PATH Windows has now (Claude closed and opened), and once more
+        run: |
+          set +e
+          bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?
+          echo "setup exit $rc"
+          # what a program opened now gets: the PATH Windows has after winget (Machine + User), with Git's tools
+          fresh(){ printf '%s;%s;%s' 'C:\Program Files\Git\bin' 'C:\Program Files\Git\cmd' "$(powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(\$false); [Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User')" | tr -d '\r')"; }
+          if [ $rc -eq 11 ]; then
+            PATH="/usr/bin:/mingw64/bin:$(cygpath -u -p "$(fresh)")" bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install; rc=$?
+            echo "setup exit (a new shell) $rc"
+          fi
+          echo "PATH=$(fresh)" >> "$GITHUB_ENV"
+          exit $rc
+      - name: the studio works on it — its tools are winget's, it starts, and «مقطع جديد» on Arabic speech gives Arabic sentences
+        run: |
+          for t in node python ffmpeg; do echo "$t: $(command -v $t)"; command -v $t >/dev/null; done
+          if command -v node python | grep -qi 'hostedtoolcache\|nodejs.hidden'; then echo "the image's own tools answer, not winget's"; exit 1; fi
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          bash "$S/start.sh" --no-open
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          ffmpeg -nostdin -v error -y -i "$GITHUB_WORKSPACE/.github/test/arabic-speech.mp3" -f lavfi -i testsrc2=size=360x640:rate=30 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -ar 48000 "$HOME/arabic.mp4"
+          cat > "$HOME/arabic_words.py" <<'PY'
+          import json, os, re, time, urllib.error, urllib.parse, urllib.request
+          # «مقطع جديد» with the whole montage on a clip of Arabic speech (ElevenLabs' «Saad», never the author's voice: «مرحبا، هذا
+          # اختبار التفريغ العربي في الاستوديو على ويندوز. نجرب الجمل والكابشن.»), with the default settings: the sentences come, in
+          # Arabic, and words of what was said are in them. env: URL (the running studio), VIDEO, NAME
+          url, video, name = os.environ['URL'].rstrip('/'), os.environ['VIDEO'], os.environ['NAME']
+
+
+          def call(path, body=None, timeout=60):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or '{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or '{}')
+              except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                  return 0, {'error': str(e)}
+
+
+          t0 = time.time()
+          st, j = call('/api/raw/start', {'path': video, 'name': name, 'mode': 'full', 'face': 'none'})
+          print('start', st, json.dumps(j, ensure_ascii=False))
+          assert st == 202 and j.get('folder'), j
+          q, c, last = '/x/' + urllib.parse.quote(j['folder']) + '/api/cut', {}, 0
+          while time.time() - t0 < 1800:
+              st, c = call(q)
+              if st == 200 and c.get('state') == 'ready':
+                  break
+              if st == 200 and (c.get('state') == 'stalled' or c.get('hearFail')):
+                  raise SystemExit('stopped: ' + json.dumps(c, ensure_ascii=False)[:1500])
+              if time.time() - last > 30:
+                  last = time.time(); print(f'  {int(last - t0)} s', c.get('state'), c.get('step'), c.get('pct'), flush=True)
+              time.sleep(2)
+          else:
+              raise SystemExit('not ready in 30 min: ' + json.dumps(c, ensure_ascii=False)[:1500])
+          said = ' '.join(i['text'] for i in c.get('islands', []) if i.get('text', '').strip())
+          print(f'sentences after {int(time.time() - t0)} s:', c.get('heard'), said)
+          words = said.split()
+          arabic = [w for w in words if re.search('[؀-ۿ]', w)]
+          assert words and len(arabic) >= 0.8 * len(words), 'not Arabic: ' + said
+          hits = [w for w in ('مرحبا', 'اختبار', 'التفريغ', 'العربي', 'ويندوز', 'الجمل', 'الكابشن') if w in said]
+          print('words of the sentence heard:', hits)
+          assert len(hits) >= 3, 'the sentence said is not there: ' + said
+          print('PASSED')
+          PY
+          # (run by the montage tools' Python: on a machine like this one «python» may be the Store's stub)
+          URL="$URL" VIDEO="$(cygpath -w "$HOME/arabic.mp4")" NAME='جمل على جهاز نظيف' PYTHONIOENCODING=utf-8 "$HOME/Documents/video-edit/tools/py/Scripts/python.exe" "$(cygpath -w "$HOME/arabic_words.py")"
       - name: stop
         if: always()
         run: bash "$HOME/Documents/video-edit/studio/app/scripts/studio.sh" stop || true

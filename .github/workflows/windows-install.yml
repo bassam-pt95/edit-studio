@@ -1177,6 +1177,9 @@ jobs:
               await page.waitForFunction(() => !!new URL(location.href).searchParams.get('p'), { timeout: 120000, polling: 200 });
               const folder = await page.evaluate(() => new URL(location.href).searchParams.get('p'));
               await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+              // (run 41483737084) the page opens a new clip as soon as the library lists it, and its timeline is written a moment
+              // later (project.json: its video, then the one clip on the timeline): wait for that state, then judge it
+              await page.waitForFunction(() => { const s = window.__mohrer.store.state.p; return s.spine.length > 0; }, { timeout: 120000, polling: 250 }).catch(() => {});
               const p = await page.evaluate(() => { const s = window.__mohrer.store.state.p; return { name: s.name, spine: s.spine.length, assets: Object.entries(s.assets).map(([id, a]) => ({ id, kind: a.kind })) }; });
               console.log('opened:', folder, JSON.stringify(p));
               if (p.name !== want) return fail(`the clip's name is «${p.name}», not «${want}»`);
@@ -1825,10 +1828,18 @@ jobs:
           # (run 41478240120: one pass left 20 of Python's parts installed, their exit codes unseen) each MSI until it is gone, its exit
           # code said; IGNOREDEPENDENCIES=ALL: Python's parts name the image's own bundle as their dependent, which refuses taking one
           # alone; 1618 (another install still running) waits and tries again
+          # (run 41483737084: the same parts ended 1603 on all five passes, after Core Interpreter and Executables had gone first)
+          # Python's parts before its interpreter: their own uninstall steps may run python.exe. A part that still fails says why:
+          # the lines before «Return value 3» in its MSI log
+          $last = 'Core Interpreter|Executables|Python Launcher|Node\.js'
           for ($pass = 1; $pass -le 5 -and (& $listed); $pass++) {
-            foreach ($a in & $listed) { if ($a.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') {
-              $p = Start-Process msiexec.exe -ArgumentList '/x', $a.PSChildName, '/qn', '/norestart', 'IGNOREDEPENDENCIES=ALL' -Wait -NoNewWindow -PassThru
+            foreach ($a in @(& $listed | Sort-Object { if ($_.DisplayName -match $last) { 1 } else { 0 } })) { if ($a.PSChildName -match '^\{[0-9A-Fa-f-]+\}$') {
+              $log = Join-Path $env:RUNNER_TEMP "msi-$($a.PSChildName).log"
+              $p = Start-Process msiexec.exe -ArgumentList '/x', $a.PSChildName, '/qn', '/norestart', 'IGNOREDEPENDENCIES=ALL', '/l*v', "`"$log`"" -Wait -NoNewWindow -PassThru
               "uninstall (msi, pass $pass): $($a.DisplayName) → exit $($p.ExitCode)"
+              if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 1605 -and (Test-Path $log)) {
+                Select-String -Path $log -Pattern 'Return value 3' -Context 8, 0 | Select-Object -First 1 | ForEach-Object { @($_.Context.PreContext) + $_.Line } | ForEach-Object { "    $_" }
+              }
               if ($p.ExitCode -eq 1618) { Start-Sleep -Seconds 10 }
             } }
           }

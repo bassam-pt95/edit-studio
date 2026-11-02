@@ -1289,8 +1289,13 @@ jobs:
             // (run 41478240120, the Arabic user folder: on Windows puppeteer calls any failed start «already running» and says no more)
             // its own profile folder, two minutes to start on a busy runner, and the browser's own words in the log
             const prof = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'export-chrome-'));
+            // CHROME_HOME (the Arabic user folder step, run 41487587106): HOME and USERPROFILE are swapped there by variables only, while
+            // Windows' own profile stays the runner's, and Chrome then takes its folder for the default one («DevTools remote debugging
+            // requires a non-default data directory»). On a real machine the two agree, so the test's browser gets the runner's
+            // own; the studio, its data, the clip and the export stay under the Arabic folder
+            const own = process.env.CHROME_HOME ? { USERPROFILE: process.env.CHROME_HOME, HOME: process.env.CHROME_HOME } : {};
             const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, userDataDir: prof, dumpio: true, timeout: 120000,
-              args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
+              env: { ...process.env, ...own }, args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
             const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
             try {
               // 1 the clip
@@ -1593,7 +1598,7 @@ jobs:
           curl -s -m 30 "${URL}api/info" | python -c "import json, sys; d = json.load(sys.stdin); print('face', d.get('face')); assert d.get('face') is True"
           URL="$URL" VIDEO="$(cygpath -w "$A/Videos/مقطع تجربة (خام).mp4")" NAME='جمل من مجلد عربي' PYTHONIOENCODING=utf-8 python "$(cygpath -w "$OH/arabic_words.py")"
           B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
-          PP="$(cygpath -w "$OH/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$(cygpath -w "$A/Videos/فيديو للتصدير.mp4")" NAME='تصدير من مجلد عربي' STEPS=draw MCP="$(cygpath -w /c/EditStudio/studio/app/studio/tools/studio-mcp.mjs)" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$OH/export_check.cjs")"
+          PP="$(cygpath -w "$OH/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" CHROME_HOME="$(cygpath -w "$OH")" URL="$URL" VIDEO="$(cygpath -w "$A/Videos/فيديو للتصدير.mp4")" NAME='تصدير من مجلد عربي' STEPS=draw MCP="$(cygpath -w /c/EditStudio/studio/app/studio/tools/studio-mcp.mjs)" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$OH/export_check.cjs")"
           bash "$S/studio.sh" stop
       - name: doctor (info)
         if: always()
@@ -1856,8 +1861,10 @@ jobs:
           # winget (Microsoft's module), and its folder on the user's PATH as on a home PC
           # (run 41485971111: Install-PackageProvider's NuGet comes from a CDN Microsoft retired, «No match was found … 'NuGet'») the
           # module from the PowerShell Gallery through PSResourceGet, the module installer pwsh 7.4+ carries itself
-          Set-PSResourceRepository PSGallery -Trusted
-          Install-PSResource Microsoft.WinGet.Client -Scope AllUsers -TrustRepository -Quiet
+          # (run 41487587106: Set-PSResourceRepository found no repository store yet on this image) reading the list makes the store;
+          # the gallery trusted for this one install only
+          Get-PSResourceRepository -Name PSGallery | Out-Null
+          Install-PSResource Microsoft.WinGet.Client -Repository PSGallery -Scope AllUsers -TrustRepository -Quiet
           Import-Module Microsoft.WinGet.Client
           Repair-WinGetPackageManager -AllUsers -Force -Latest
           $apps = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'

@@ -1120,7 +1120,8 @@ jobs:
             const before = await call(`${base}/assistant/run`, { command: 'echo early', why: 'x' });
             if (before.status !== 409) fail(`run outside a Codex turn: ${before.status}`);
             if ((await call(`${base}/assistant/perm`, { level: 'studio' })).status !== 200) fail('the level');
-            await call(`${base}/assistant/new`);
+            // new and stop are POST routes (run 41613599569: a GET left the fake turn running, and since 1.0.23 a busy studio refuses its stop)
+            if ((await call(`${base}/assistant/new`, {})).status !== 200) fail('a new conversation');
             const sent = await call(`${base}/assistant/send`, { text: 'ابنِ' });
             if (sent.status !== 202) fail(`send: ${sent.status} ${JSON.stringify(sent.body)}`);
             const log = path.join(process.env.CODEX_FAKE_DIR, 'zay-log.jsonl');
@@ -1150,7 +1151,11 @@ jobs:
             if (!got.body || !got.body.ok || !fs.existsSync(got.body.file) || path.dirname(got.body.file) !== path.join(workDir, 'downloads')) fail(`fetch: ${JSON.stringify(got.body)}`);
             const loc = await call(`${base}/assistant/fetch`, { url: `${url}/api/projects` });
             if (!loc.body || loc.body.ok !== false || loc.body.error !== 'private') fail(`the studio's own address was fetched: ${JSON.stringify(loc.body)}`);
-            await call(`${base}/assistant/stop`);
+            const halted = await call(`${base}/assistant/stop`, {});
+            if (halted.status !== 200) fail(`«إيقاف»: ${halted.status} ${JSON.stringify(halted.body)}`);
+            let idle = false;
+            for (let i = 0; i < 40 && !idle; i++) { idle = (await call(`${base}/assistant`)).body?.busy === false; if (!idle) await new Promise((r) => setTimeout(r, 250)); }
+            if (!idle) fail('the montage is still busy 10 s after «إيقاف»');
             await call(`${base}/assistant/perm`, { level: 'ask' });
             console.log(`live: run and fetch worked for the Codex turn in ${workDir}, its temp folder .tmp there, an upload asked and «لا» ran nothing, the studio's own address refused`);
           } else fail(`no mode ${mode}`);

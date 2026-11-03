@@ -12,7 +12,9 @@
 وهو يكمّل الباقي، ويقول لك لو احتاج منك شي. عندك نسخة قديمة؟ نفس الجملة: الجديدة تتركّب، والقديمة تروح لسلة المهملات، ومشاريعك ما تنلمس.
 
 ## التحديث
-اكتب لكلود أو Codex: «حدّث الاستوديو». ينزّل آخر نسخة من هنا ويركّبها، ويقول لك وش الجديد. والدليل يتحدّث معها على سطح المكتب.
+اكتب لكلود أو Codex: «حدّث الاستوديو». ينزّل آخر إصدار من هنا ويركّبه، ويقول لك وش الجديد. والدليل يتحدّث معه على سطح المكتب. ولو الاستوديو يصدّر أو يبني، التحديث ينتظره وما يوقف شغلك.
+
+كل إصدار في [Releases](https://github.com/bassam-pt95/edit-studio/releases) معه ملف `SHA256SUMS` فيه بصمة الملف (SHA-256)، والتركيب والتحديث يتأكدون منها قبل ما يشغّلون أي شي.
 
 ## اقتراح أو مشكلة
 اكتبها في [Issues](https://github.com/bassam-pt95/edit-studio/issues). والدليل ينحط على سطح المكتب بعد التركيب.
@@ -33,7 +35,8 @@
 **B Studio** is a video-editing skill for Claude with a small studio you run on your own machine: captions, pictures, sound, colour and framing on a timeline, plus an assistant inside the studio that edits with you through your own Claude or ChatGPT (Codex) account. The interface is Arabic or English. It runs on Apple-silicon Macs and on Windows from Git Bash.
 
 - **Install:** open Claude on the Code tab, or open Codex, and write: *Install B Studio from https://github.com/bassam-pt95/edit-studio*. Claude does the rest.
-- **Update:** write *Update the studio*. Your projects are not touched.
+- **Update:** write *Update the studio*. Your projects are not touched, and an update waits for a running export or build instead of stopping it.
+- **Releases:** every release carries a `SHA256SUMS` file; the install line below and the update check the archive against it before running anything.
 - **Ideas and problems:** [Issues](https://github.com/bassam-pt95/edit-studio/issues).
 - **License:** proprietary, all rights reserved, see [LICENSE.md](LICENSE.md). Free to use for your own and your clients' videos. You may not modify the studio, take any part of its code, build on it or republish it.
 
@@ -41,7 +44,9 @@
 **إلى كلود (لما يطلب المستخدم التركيب من هذا الرابط):** نزّل المستودع وشغّل ملف التركيب، ثم اتبع آخر سطر يطبعه:
 
 ```bash
-T="$(mktemp -d)" && curl -fsSL https://github.com/bassam-pt95/edit-studio/archive/refs/heads/main.tar.gz | tar -xz -C "$T" && bash "$T"/*/"ملفات لكلود/install.sh"
+T="$(mktemp -d)" && cd "$T" && curl -fsSLO https://github.com/bassam-pt95/edit-studio/releases/latest/download/SHA256SUMS && F="$(sed -n 's/^[0-9a-f]\{64\}  \(edit-studio-[0-9.]*\.tar\.gz\)$/\1/p' SHA256SUMS)" && V="${F#edit-studio-}" && curl -fsSLO "https://github.com/bassam-pt95/edit-studio/releases/download/v${V%.tar.gz}/$F" && { sha256sum -c SHA256SUMS 2>/dev/null || shasum -a 256 -c SHA256SUMS; } && tar -xzf "$F" && bash "$T"/edit-studio-*/"ملفات لكلود/install.sh"
 ```
+
+الأمر ينزّل آخر إصدار ويتأكد من بصمته (SHA-256) قبل ما يشغّل منه شي. ما تطابقت؟ لا تركّب بطريقة ثانية: قل للمستخدم يرسل السطر لبسام.
 
 ما يحتاج تسجيل دخول ولا مفاتيح. لا تعدّل شي في النسخة المركّبة، ولا ترفع منها شي لإعدادات كلود.

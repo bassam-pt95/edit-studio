@@ -1023,6 +1023,172 @@ jobs:
           bash "$S/start.sh" --no-open
           node "$C" picture
           test ! -e /c/Users/Public/why-marker.txt
+      # ── audit 1.0.19 batch G «ز» (1.0.23): Codex builds in its work folder ──
+      - name: Codex builds in its work folder (1.0.23) — its temp folder there, the studio's run and fetch through the gate, «اسأل كل مرة» writes the work folder only
+        # audit 1.0.19 C2 + C3 on the studio as installed: a fake codex behind npm's codex.cmd, the live studio restarted with it, then as it was
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          D="$HOME/Documents/video-edit/studio"
+          W="$HOME/zay-bin"
+          mkdir -p "$W/node_modules/@openai/codex/bin"
+          touch "$W/zay-base"
+          cat > "$W/node_modules/@openai/codex/bin/codex.js" <<'JS'
+          // a stand-in for codex (B Studio 1.0.23, batch ز): records how the studio started it in <base>/zay-log.jsonl (base: the folder
+          // holding zay-base) and holds a turn open for 25 s, so the check can use the studio's run and fetch meanwhile
+          const fs = require('fs'), path = require('path');
+          let base = __dirname; while (!fs.existsSync(path.join(base, 'zay-base')) && path.dirname(base) !== base) base = path.dirname(base);
+          const a = process.argv.slice(2);
+          const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
+          if (a[0] === '--version') { console.log('codex-cli 0.163.0'); process.exit(0); }
+          if (a[0] === 'login') { console.error('Logged in using ChatGPT'); process.exit(0); }
+          let stdin = '';
+          process.stdin.setEncoding('utf8');
+          process.stdin.on('data', (d) => { stdin += d; });
+          process.stdin.on('end', () => {
+            fs.appendFileSync(path.join(base, 'zay-log.jsonl'), JSON.stringify({ argv: a, tmp: process.env.TMPDIR || process.env.TEMP || null }) + '\n');
+            out({ type: 'thread.started', thread_id: 'zay-thread' });
+            out({ type: 'turn.started' });
+            setTimeout(() => { out({ type: 'item.completed', item: { id: 'm', type: 'agent_message', text: 'ok' } }); out({ type: 'turn.completed', usage: {} }); process.stdout.write('', () => process.exit(0)); }, 25000);
+          });
+          JS
+          printf '@echo off\r\nnode "%%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %%*\r\n' > "$W/codex.cmd"
+          cat > "$HOME/zay_check.mjs" <<'JS'
+          // batch ز (B Studio 1.0.23, audit C2 + C3) on the studio as installed; argv[2] = units | live.
+          // units: the installed server's own outside.mjs and codex.mjs: the shell `run` starts (Git Bash, else PowerShell with the text
+          //   encoded, never cmd.exe), a command stopped with its tree, the temp folder, a public download and the refused local ones,
+          //   Codex's sandbox at «اسأل كل مرة» (its work folder, writable) with its temp folder there.
+          // live: «المونتير» on the live studio with a fake Codex (CODEX_FAKE_DIR) that holds its turn open: the studio's run and fetch work
+          //   for that turn only, in its work folder, judged by the gate (an upload asks, his «لا» means it never ran).
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+          import { spawn } from 'node:child_process';
+          const mode = process.argv[2], win = process.platform === 'win32';
+          const fail = (m) => { console.error(`FAIL: ${m}`); process.exit(1); };
+          const imp = (f) => import(pathToFileURL(path.join(process.env.APP_SERVER, f)).href);
+          const PUBLIC = 'https://raw.githubusercontent.com/github/gitignore/main/Node.gitignore';
+
+          if (mode === 'units') {
+            const { shellFor, runOutside, fetchInto, isPublicIp } = await imp('assistant/outside.mjs');
+            const { workTmp, codexAgentArgs } = await imp('codex.mjs');
+            const T = fs.mkdtempSync(path.join(os.tmpdir(), 'zay-'));
+            const work = path.join(T, 'مجلد العمل'), tmp = workTmp(work);
+            if (!fs.statSync(tmp).isDirectory() || path.basename(tmp) !== '.tmp') fail(`workTmp: ${tmp}`);
+            fs.mkdirSync(path.join(tmp, 'old')); const past = (Date.now() - 3 * 3600e3) / 1000; fs.utimesSync(path.join(tmp, 'old'), past, past);
+            workTmp(work);
+            if (fs.existsSync(path.join(tmp, 'old'))) fail('an old leftover in .tmp stayed');
+            const env = { ...process.env, TMPDIR: tmp, TEMP: tmp, TMP: tmp };
+            const sh = shellFor('echo hi', { platform: process.platform, env });
+            if (win && sh.tool !== 'Bash') fail(`Git Bash is on the runner but run would start ${sh.cmd}`);
+            const r = await runOutside('echo made > made.txt && echo "T=$TMPDIR"', { cwd: work, env });
+            if (r.code !== 0 || fs.readFileSync(path.join(work, 'made.txt'), 'utf8').trim() !== 'made') fail(`run in the work folder: ${JSON.stringify(r)}`);
+            if (!r.out.includes('.tmp')) fail(`run's TMPDIR is not the work folder's .tmp: ${r.out}`);
+            if (win) {
+              // no Git Bash: PowerShell, the text encoded (never through cmd.exe: «&» stays a word)
+              const ps = shellFor('"ok & done" | Out-File -Encoding utf8 ps.txt', { platform: 'win32', env: {}, exists: () => false });
+              if (ps.tool !== 'PowerShell' || !ps.args.includes('-EncodedCommand')) fail(`PowerShell's line: ${JSON.stringify(ps)}`);
+              await new Promise((res) => spawn(ps.cmd, ps.args, { cwd: work, stdio: 'ignore', windowsHide: true }).on('close', res));
+              const got = fs.readFileSync(path.join(work, 'ps.txt'), 'utf8').replace(/^﻿/, '').trim();
+              if (got !== 'ok & done') fail(`PowerShell wrote «${got}»`);
+            }
+            const t0 = Date.now();
+            const slow = await runOutside('sleep 30', { cwd: work, env, ms: 2000 });
+            if (!slow.timedOut || Date.now() - t0 > 15000) fail(`a command past its time was not stopped: ${JSON.stringify(slow)} in ${Date.now() - t0} ms`);
+            for (const ip of ['127.0.0.1', '::1', '10.0.0.1', '192.168.1.1', '169.254.169.254']) if (isPublicIp(ip)) fail(`${ip} counted as the internet`);
+            const got = await fetchInto(PUBLIC, path.join(work, 'downloads'));
+            if (!fs.existsSync(got.file) || got.bytes < 100) fail(`a public download: ${JSON.stringify(got)}`);
+            for (const u of ['http://127.0.0.1:9/x', 'http://localhost:9/x']) {
+              try { await fetchInto(u, path.join(work, 'downloads')); fail(`${u} was fetched`); } catch (e) { if (e.key !== 'private') fail(`${u}: ${e.key} ${e.message}`); }
+            }
+            const a = codexAgentArgs({ level: 'ask', project: path.join(T, 'p'), roots: [work], work, tmp, env: {} });
+            if (a[a.indexOf('-s') + 1] !== 'workspace-write' || a.filter((x, i) => a[i - 1] === '--add-dir').join('|') !== work) fail(`«اسأل كل مرة»: ${a.join(' ')}`);
+            for (const k of ['TMPDIR', 'TEMP', 'TMP']) if (!a.includes(`shell_environment_policy.set.${k}=${JSON.stringify(tmp)}`)) fail(`${k} not set for its shell`);
+            fs.rmSync(T, { recursive: true, force: true });
+            console.log(`units: run (${sh.tool}) in the work folder with its .tmp, stopped at its time, downloads from the internet only, «اسأل كل مرة» = the work folder`);
+          } else if (mode === 'live') {
+            const url = process.env.URL.replace(/\/+$/, ''), clip = encodeURIComponent(process.env.CLIP);
+            const html = await (await fetch(`${url}/?p=${clip}`, { headers: { 'sec-fetch-dest': 'document' } })).text();
+            const key = (html.match(/name="studio-key" content="([^"]+)"/) || [])[1];
+            if (!key) fail('no page key in the page');
+            const H = { 'content-type': 'application/json', 'x-studio-key': key };
+            const call = async (p, body, method) => { const r = await fetch(url + p, { method: method || (body ? 'POST' : 'GET'), headers: H, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
+            const base = `/x/${clip}/api`;
+            if ((await call(`${base}/ai`, { provider: 'codex' }, 'PUT')).status !== 200) fail('choosing Codex');
+            const st = await call(`${base}/assistant?fresh=1`);
+            if (!st.body || !st.body.installed || !st.body.loggedIn) fail(`the fake codex is not ready: ${JSON.stringify(st.body && { installed: st.body.installed, loggedIn: st.body.loggedIn })}`);
+            const before = await call(`${base}/assistant/run`, { command: 'echo early', why: 'x' });
+            if (before.status !== 409) fail(`run outside a Codex turn: ${before.status}`);
+            if ((await call(`${base}/assistant/perm`, { level: 'studio' })).status !== 200) fail('the level');
+            await call(`${base}/assistant/new`);
+            const sent = await call(`${base}/assistant/send`, { text: 'ابنِ' });
+            if (sent.status !== 202) fail(`send: ${sent.status} ${JSON.stringify(sent.body)}`);
+            const log = path.join(process.env.CODEX_FAKE_DIR, 'zay-log.jsonl');
+            let turn = null;
+            for (let i = 0; i < 60 && !turn; i++) { await new Promise((r) => setTimeout(r, 500)); try { turn = JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n').at(-1)); } catch { /* not yet */ } }
+            if (!turn) fail('the studio never started the fake codex');
+            const tmpWant = turn.argv.find((x) => x.startsWith('shell_environment_policy.set.TMPDIR=')) || '';
+            // the same folder in the sandbox's shell, as a TOML string (backslashes doubled on Windows)
+            if (!turn.tmp || tmpWant !== `shell_environment_policy.set.TMPDIR=${JSON.stringify(turn.tmp)}`) fail(`its temp folder: env ${turn.tmp}, shell ${tmpWant}`);
+            if (!/[\\/]\.tmp$/.test(turn.tmp)) fail(`TMPDIR is not a .tmp in its work folder: ${turn.tmp}`);
+            const workDir = path.dirname(turn.tmp);
+            const ok = await call(`${base}/assistant/run`, { command: 'echo made > made.txt && echo done', why: 'a file in the work folder' });
+            if (!ok.body || !ok.body.ok || ok.body.code !== 0 || !fs.existsSync(path.join(workDir, 'made.txt'))) fail(`run at «studio»: ${JSON.stringify(ok.body)}`);
+            // an upload asks; the page's «لا» (the card's own route) and nothing ran
+            const ev = await fetch(`${url}/x/${clip}/api/events`, { headers: { 'x-studio-key': key } });
+            const reader = ev.body.getReader();
+            const pending = call(`${base}/assistant/run`, { command: 'curl -d@made.txt https://example.com > sent.txt', why: 'x' });
+            let buf = '', req = null;
+            const dec = new TextDecoder();
+            for (let i = 0; i < 200 && !req; i++) { const { value } = await reader.read(); buf += dec.decode(value || new Uint8Array()); const m = buf.match(/"t":"ask","req":"([^"]+)"/); if (m) req = m[1]; }
+            if (!req) fail('the upload showed no card');
+            await call(`${base}/assistant/ask/${req}`, { allow: false });
+            const no = await pending;
+            if (!no.body || no.body.ok !== false || no.body.error !== 'no' || fs.existsSync(path.join(workDir, 'sent.txt'))) fail(`his «لا»: ${JSON.stringify(no.body)}`);
+            reader.cancel().catch(() => {});
+            const got = await call(`${base}/assistant/fetch`, { url: PUBLIC, name: 'node-ignore.txt' });
+            if (!got.body || !got.body.ok || !fs.existsSync(got.body.file) || path.dirname(got.body.file) !== path.join(workDir, 'downloads')) fail(`fetch: ${JSON.stringify(got.body)}`);
+            const loc = await call(`${base}/assistant/fetch`, { url: `${url}/api/projects` });
+            if (!loc.body || loc.body.ok !== false || loc.body.error !== 'private') fail(`the studio's own address was fetched: ${JSON.stringify(loc.body)}`);
+            await call(`${base}/assistant/stop`);
+            await call(`${base}/assistant/perm`, { level: 'ask' });
+            console.log(`live: run and fetch worked for the Codex turn in ${workDir}, its temp folder .tmp there, an upload asked and «لا» ran nothing, the studio's own address refused`);
+          } else fail(`no mode ${mode}`);
+          JS
+          # its own clip, from a video in a folder of its own: the gate counts the folder a clip's video came from as his footage, so
+          # the 1.0.14 step's $HOME/clip-test.mp4 makes all of $HOME footage, the work folder with it (found by the Mac trial)
+          mkdir -p "$HOME/zay-video"
+          ffmpeg -nostdin -v error -y -f lavfi -i testsrc2=size=360x640:rate=30:duration=4 -f lavfi -i "sine=f=330:d=4" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/zay-video/zay.mp4"
+          bash "$S/start.sh" --no-open
+          ZCLIP="$(VIDEO="$(cygpath -w "$HOME/zay-video/zay.mp4")" URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')" PYTHONIOENCODING=utf-8 python - <<'PY'
+          import json, os, time, urllib.request
+          url, video = os.environ['URL'].rstrip('/') + '/', os.environ['VIDEO']
+          def call(path, body=None):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.status, json.loads(r.read().decode('utf-8'))
+          st, j = call('api/raw/start', {'path': video, 'name': 'تجربة Codex', 'mode': 'manual', 'face': 'none'})
+          assert st == 202 and j.get('folder'), (st, j)
+          for _ in range(120):
+              st, lst = call('api/projects')
+              e = next((p for p in lst.get('projects', []) if p.get('folder') == j['folder']), None)
+              if e and e.get('status') != 'preparing' and e.get('phase') != 'running': break
+              time.sleep(1)
+          else: raise SystemExit('the Codex clip never got ready')
+          print(j['folder'])
+          PY
+          )"
+          test -n "$ZCLIP"
+          export APP_SERVER="$(cygpath -w "$D/app/studio/server")" CODEX_FAKE_DIR="$(cygpath -w "$W")" CLIP="$ZCLIP" PYTHONIOENCODING=utf-8
+          C="$(cygpath -w "$HOME/zay_check.mjs")"
+          node "$C" units
+          bash "$S/studio.sh" stop
+          MOHRER_CODEX="$CODEX_FAKE_DIR\\codex.cmd" bash "$S/start.sh" --no-open
+          export URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          node "$C" live
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
       - name: desktop shortcut
         shell: pwsh
         run: |
@@ -1043,6 +1209,158 @@ jobs:
           ls "$HOME/edit-studio-old"
       - name: the guide is on the Desktop
         run: ls -la "$HOME/Desktop/" && test -f "$HOME/Desktop/دليل B Studio.pdf"
+      # ── audit 1.0.19 batch F (1.0.23): an update never stops the work, «حدّث الاستوديو» by the release, «إصدار جديد» ──
+      - name: an update never stops the studio's work (audit 1.0.19, I4) — a clip being prepared; studio.sh busy names it, start.mjs --stop and setup.sh --install refuse (12) and the studio runs on; once it is ready the same install goes through
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"; K="$HOME/.claude/skills/edit-studio/scripts"
+          W(){ cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }; PYX="${PYX:-python}"
+          AR="${AR:-$GITHUB_WORKSPACE/.github/test/arabic-speech.mp3}"
+          bash "$S/start.sh" --no-open
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"; URL="${URL%/}"; test -n "$URL"
+          SJ="$HOME/Documents/video-edit/studio/projects/.mohrer/server.json"
+          pid(){ "$PYX" -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8'))['pid'])" "$(W "$SJ")"; }
+          P0="$(pid)"
+          # Arabic speech six times over (~40 s): its preparation (the sentences, on the processor) lasts long enough to update into
+          ffmpeg -nostdin -v error -y -stream_loop 5 -i "$AR" -f lavfi -i testsrc2=size=360x640:rate=30 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -ar 48000 "$HOME/busy.mp4"
+          cat > "$HOME/busy_api.py" <<'PY'
+          import json, os, sys, time, urllib.parse, urllib.request
+          # the studio's routes for this step. env: URL, VIDEO, NAME. start → the folder · prepare: until /api/work names a
+          # preparation · ready <folder>: until its sentences are there · free: until /api/work says nothing runs
+          url = os.environ['URL'].rstrip('/')
+
+
+          def call(p, body=None):
+              req = urllib.request.Request(url + p, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read().decode('utf-8') or '{}')
+
+
+          cmd, t0 = sys.argv[1], time.time()
+          if cmd == 'start':
+              print(call('/api/raw/start', {'path': os.environ['VIDEO'], 'name': os.environ['NAME'], 'mode': 'full', 'face': 'none'})['folder'])
+          elif cmd == 'prepare':
+              w = {}
+              while time.time() - t0 < 60:
+                  w = call('/api/work')
+                  if any(x.get('kind') == 'prepare' for x in w.get('what', [])):
+                      print(json.dumps(w, ensure_ascii=False)); sys.exit(0)
+                  time.sleep(0.5)
+              sys.exit('no preparation in /api/work: ' + json.dumps(w, ensure_ascii=False))
+          elif cmd == 'ready':
+              q = '/x/' + urllib.parse.quote(sys.argv[2]) + '/api/cut'
+              while time.time() - t0 < 1200:
+                  c = call(q)
+                  if c.get('state') == 'ready':
+                      print('ready after', int(time.time() - t0), 's'); sys.exit(0)
+                  if c.get('state') == 'stalled' or c.get('hearFail'):
+                      sys.exit('stopped: ' + json.dumps(c, ensure_ascii=False)[:800])
+                  time.sleep(2)
+              sys.exit('not ready in 20 min')
+          elif cmd == 'free':
+              while time.time() - t0 < 120:
+                  if not call('/api/work').get('busy'):
+                      sys.exit(0)
+                  time.sleep(1)
+              sys.exit('still busy after 2 min')
+          PY
+          export URL VIDEO="$(W "$HOME/busy.mp4")" NAME='تحديث وهو مشغول' PYTHONIOENCODING=utf-8
+          F="$("$PYX" "$(W "$HOME/busy_api.py")" start)"; echo "clip: $F"
+          "$PYX" "$(W "$HOME/busy_api.py")" prepare
+          set +e
+          bash "$S/studio.sh" busy > "$HOME/busy.txt"; rc=$?; cat "$HOME/busy.txt"
+          [ $rc -eq 4 ] && grep -q 'يجهّز «تحديث وهو مشغول»' "$HOME/busy.txt" || { echo "studio.sh busy ended $rc"; exit 1; }
+          node "$(W "$HOME/Documents/video-edit/studio/app/studio/start.mjs")" --stop; rc=$?
+          [ $rc -eq 4 ] || { echo "start.mjs --stop while a clip is prepared ended $rc, not 4"; exit 1; }
+          STUDIO_BUSY_WAIT=2 bash "$K/setup.sh" --install --no-python --no-app --no-montage > "$HOME/setup-busy.txt" 2>&1; rc=$?; cat "$HOME/setup-busy.txt"
+          [ $rc -eq 12 ] && grep -q 'ما وقّفت شي' "$HOME/setup-busy.txt" || { echo "setup.sh --install while busy ended $rc, not 12"; exit 1; }
+          test ! -e "$HOME/Documents/video-edit/studio/.app-new" || { echo "a half copy was left"; exit 1; }
+          [ "$(pid)" = "$P0" ] && curl -fsS "$URL/api/info" >/dev/null || { echo "the studio did not run on"; exit 1; }
+          set -e
+          "$PYX" "$(W "$HOME/busy_api.py")" ready "$F"
+          "$PYX" "$(W "$HOME/busy_api.py")" free
+          bash "$K/setup.sh" --install --no-python --no-app --no-montage > "$HOME/setup-free.txt" 2>&1 || { cat "$HOME/setup-free.txt"; exit 1; }
+          grep '✅ الاستوديو مثبّت' "$HOME/setup-free.txt"
+          bash "$S/start.sh" --no-open
+      - name: «حدّث الاستوديو» end to end (audit 1.0.19, I5 and S9) — the release by its tag, its SHA-256 checked, the studio installed by update.sh itself, the last line for the person; a changed archive runs nothing (18); the README line installs only a matching one
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"; K="$HOME/.claude/skills/edit-studio/scripts"
+          W(){ cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
+          sha(){ sha256sum "$1" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$1" | cut -d' ' -f1; }
+          REL="${REL:-https://github.com/bassam-pt95/edit-studio/releases}"
+          WANT="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "ملفات لكلود/edit-studio/manifest.json" | head -1)"
+          # the installed skill says it is older, as a follower's would: update.sh brings the published release of this commit
+          sed -i.bak "s/\"version\": \"$WANT\"/\"version\": \"1.0.0\"/" "$HOME/.claude/skills/edit-studio/manifest.json"
+          bash "$K/update.sh" --check | tee "$HOME/check.txt"; grep -q "^newer 1.0.0 $WANT$" "$HOME/check.txt"
+          set +e
+          bash "$K/update.sh" > "$HOME/update.txt" 2>&1; rc=$?; cat "$HOME/update.txt"; echo "update exit $rc"
+          set -e
+          [ $rc -eq 0 ] || exit $rc
+          grep -q 'البصمة (SHA-256) مطابقة' "$HOME/update.txt"
+          grep -q '↺ edit-studio' "$HOME/update.txt"
+          tail -1 "$HOME/update.txt" | grep -q "^✅ تحدّث B Studio إلى $WANT" || { echo "the last line is not for the person"; exit 1; }
+          grep -q "\"version\": \"$WANT\"" "$HOME/Documents/video-edit/studio/app/manifest.json" || { echo "update.sh did not install the studio"; exit 1; }
+          # the same release with a changed archive (a copy here): nothing runs, nothing changes
+          L="$HOME/rel-bad"; F="edit-studio-$WANT.tar.gz"; mkdir -p "$L/latest/download" "$L/download/v$WANT"
+          curl -fsSL --ssl-revoke-best-effort "$REL/latest/download/SHA256SUMS" -o "$L/latest/download/SHA256SUMS"
+          mkdir -p "$HOME/bad/edit-studio-$WANT" && cp -R "ملفات لكلود" "$HOME/bad/edit-studio-$WANT/" && echo '#changed' >> "$HOME/bad/edit-studio-$WANT/ملفات لكلود/install.sh"
+          tar -czf "$L/download/v$WANT/$F" -C "$HOME/bad" "edit-studio-$WANT"
+          B0="$(sha "$HOME/.claude/skills/edit-studio/SKILL.md")"
+          set +e
+          STUDIO_RELEASES="file:///$(W "$L" | sed 's#^/##')" bash "$K/update.sh" > "$HOME/bad.txt" 2>&1; rc=$?; cat "$HOME/bad.txt"
+          set -e
+          [ $rc -eq 18 ] || { echo "a changed archive ended $rc, not 18"; exit 1; }
+          [ "$(sha "$HOME/.claude/skills/edit-studio/SKILL.md")" = "$B0" ] || { echo "the skills changed"; exit 1; }
+          # the README's line for Claude, as it is published: the latest release, its SHA-256 first (Git Bash has sha256sum)
+          LINE="$(awk '/^```bash$/{f=1;next} /^```$/{f=0} f' "${README:-README.md}" | head -1)"
+          echo "$LINE" | grep -q 'releases/latest/download/SHA256SUMS'
+          LINE="${LINE//https:\/\/github.com\/bassam-pt95\/edit-studio\/releases/$REL}"   # (a trial elsewhere serves its own releases)
+          set +e
+          bash -c "$LINE" > "$HOME/readme.txt" 2>&1; rc=$?; tail -4 "$HOME/readme.txt"
+          set -e
+          [ $rc -eq 0 ] || { echo "the README line ended $rc"; exit 1; }
+          grep -q 'OK' "$HOME/readme.txt" || { echo "no SHA-256 check in its output"; exit 1; }
+          bash "$S/start.sh" --no-open
+      - name: «إصدار جديد» in the library (audit 1.0.19, I3) — a newer release served here; within two minutes /api/update says so, the library page shows the line, «أوقف التنبيه» turns it off
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          W(){ cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }; PYX="${PYX:-python}"
+          mkdir -p "$HOME/rel-new/latest/download"
+          printf '%s  edit-studio-99.0.0.tar.gz\n' "$(printf 'x' | sha256sum 2>/dev/null | cut -d' ' -f1 || printf 'x' | shasum -a 256 | cut -d' ' -f1)" > "$HOME/rel-new/latest/download/SHA256SUMS"
+          ( cd "$HOME/rel-new" && exec "$PYX" -m http.server 8999 --bind 127.0.0.1 >/dev/null 2>&1 ) & echo $! > "$HOME/http.pid"   # exec: the pid is the server's
+          bash "$S/studio.sh" stop --force || true
+          STUDIO_RELEASES=http://127.0.0.1:8999 bash "$S/start.sh" --no-open
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"; URL="${URL%/}"
+          ok=0; for i in $(seq 1 60); do curl -fsS "$URL/api/update" | tee "$HOME/upd.json" | grep -q '"newer":true' && { ok=1; break; }; sleep 2; done
+          cat "$HOME/upd.json"; echo; [ $ok = 1 ] || { echo "no newer release after 2 min"; exit 1; }
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win" 2>/dev/null || true)"; [ -n "$B" ] || B="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          cat > "$HOME/pp/note.cjs" <<'JS'
+          // the library page with a newer release: the quiet line, its words, and «أوقف التنبيه» turns it off. env: URL, B (the browser)
+          const puppeteer = require('puppeteer-core');
+          (async () => {
+            // 1400 × 900: under ~1000 px wide the library column starts closed (the line lives in it)
+            const b = await puppeteer.launch({ executablePath: process.env.B, headless: true, args: ['--no-first-run'], defaultViewport: { width: 1400, height: 900 }, userDataDir: require('path').join(require('os').tmpdir(), 'note-profile') });
+            try {
+              const p = await b.newPage();
+              await p.goto(process.env.URL, { waitUntil: 'domcontentloaded' });
+              await p.waitForSelector('.lib-update:not([hidden])', { timeout: 30000 });
+              const text = await p.$eval('.lib-update', (e) => e.innerText);
+              console.log('line:', text.replace(/\s+/g, ' '));
+              if (!text.includes('99.0.0') || !text.includes('حدّث الاستوديو')) throw new Error('the line does not say the version and how');
+              const off = (await p.$$('.lib-update-btn'))[1];
+              await off.click();
+              await p.waitForSelector('.lib-update[hidden]', { timeout: 10000 });
+              const st = await (await fetch(process.env.URL.replace(/\/$/, '') + '/api/update')).json();
+              if (st.off !== true) throw new Error('not turned off: ' + JSON.stringify(st));
+              console.log('PASSED');
+            } finally { await b.close(); }
+          })().catch((e) => { console.error(e); process.exit(1); });
+          JS
+          URL="$URL" B="$(W "$B")" node "$(W "$HOME/pp/note.cjs")"
+          kill "$(cat "$HOME/http.pid")" 2>/dev/null || true
+          bash "$S/studio.sh" stop --force || true
+          bash "$S/start.sh" --no-open
       # ── audit 1.0.19 batch E (1.0.22): the features themselves on Windows, not the install alone. Last in this job: a first run that
       # stumbles here leaves every step above with its own result ──
       - name: «مقطع جديد» pressed on the page (audit 1.0.19, P7) — its button in Chrome, Windows' own file window with the file picked in it as a hand does, the sheet, and the clip opens with its name and picture

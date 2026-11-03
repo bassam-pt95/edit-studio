@@ -1,0 +1,202 @@
+# تجربة التركيب على ماك نظيف، قد ما يقدر جهاز GitHub يكون ماك جديد (مراجعة 1.0.19، I1): نفس طريق المتابع من أول وجديد.
+# يدوي: gh workflow run mac-install.yml   (ينحط في .github/workflows/ بالمستودع العام مع النشر، مثل windows-install.yml)
+name: mac-install
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clean-mac:
+    # The runner is not a new Mac, and this job says what it cannot be instead of pretending:
+    #  · Homebrew (/opt/homebrew) and the image's Node, Python and ffmpeg are moved away, then checked: none answers on the
+    #    PATH a new Mac's Terminal has (path_helper: /etc/paths, /etc/paths.d).
+    #  · a new macOS user (sysadminctl), with its own empty home, Desktop and Documents: nothing of the runner user's.
+    #  · Homebrew comes the way the montage skill tells the person to get it (its own line, run as that user).
+    #  · NOT a new Mac: Xcode and its command line tools stay (the image needs them; a new Mac asks for them, ~1 GB, before
+    #    Homebrew installs), so /usr/bin/python3 answers here (Apple's, through those tools) where a new Mac would ask for them;
+    #    sudo needs no password (a person types theirs for Homebrew); Google Chrome stays; the VM may have no Metal GPU, which
+    #    mlx-whisper needs: the job probes it and says «not covered» instead of passing.
+    # Then the follower's path itself: install.sh, the check (it names Node and ffmpeg), setup.sh --install (it says Homebrew
+    # first), Homebrew, setup.sh --install again (brew brings ffmpeg, Node and Python; the montage venv, the studio, its sound
+    # tools, the transcription model, the desktop app, the doctor), and «مقطع جديد» on Arabic speech gives Arabic sentences.
+    # Every step is timed; the summary says what was covered and what was not.
+    runs-on: macos-15
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: what this runner is (info)
+        run: |
+          sw_vers; uname -m; sysctl -n machdep.cpu.brand_string || true
+          xcode-select -p || true; df -h / | tail -1
+          ls -d /opt/homebrew /usr/local/Homebrew 2>/dev/null || true
+          echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+      - name: a Mac with no Homebrew, Node, Python of its own or ffmpeg — the image's moved away, then checked on a new Terminal's PATH
+        run: |
+          for d in /opt/homebrew /usr/local/Homebrew /usr/local/Cellar /usr/local/Caskroom; do
+            if [ -e "$d" ]; then sudo mv "$d" "$d.image-off"; echo "moved $d"; fi
+          done
+          for t in brew node npm npx corepack ffmpeg ffprobe python3 python3.12 python3.13 python3.14 pip3; do
+            if [ -e "/usr/local/bin/$t" ] || [ -L "/usr/local/bin/$t" ]; then sudo mv "/usr/local/bin/$t" "/usr/local/bin/$t.image-off"; echo "moved /usr/local/bin/$t"; fi
+          done
+          # the PATH a login shell of a new user gets (path_helper reads /etc/paths and /etc/paths.d)
+          UPATH="$(env -i /bin/bash -lc 'printf %s "$PATH"')"
+          echo "a new Terminal's PATH: $UPATH"
+          left=""
+          for t in brew node ffmpeg ffprobe; do
+            if w="$(env -i PATH="$UPATH" /bin/bash -c "command -v $t")"; then left="$left $t=$w"; fi
+          done
+          [ -z "$left" ] || { echo "still on this machine:$left"; exit 1; }
+          echo "/usr/bin/python3 (Apple's, through the command line tools the image keeps): $(env -i PATH="$UPATH" /usr/bin/python3 -V 2>&1 || true)"
+          echo "UPATH=$UPATH" >> "$GITHUB_ENV"
+      - name: a new macOS user — its own home, Desktop and Documents; the package where it can read it
+        run: |
+          sudo sysadminctl -addUser bstudio -fullName "B Studio test" -password "bs-$(openssl rand -hex 12)" -admin
+          sudo createhomedir -c -u bstudio >/dev/null
+          # Homebrew's installer asks for the password of an administrator; a person types theirs
+          echo 'bstudio ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/bstudio >/dev/null
+          sudo chmod 440 /etc/sudoers.d/bstudio
+          cat > "$RUNNER_TEMP/as.sh" <<'SH'
+          #!/bin/bash
+          # as.sh '<commands>': run as the new user, with a new Mac's environment (its login PATH, nothing of the runner's)
+          exec sudo -u bstudio -H env -i HOME=/Users/bstudio USER=bstudio LOGNAME=bstudio SHELL=/bin/zsh TMPDIR=/tmp LANG=en_US.UTF-8 \
+            PATH="$UPATH" ${EXTRA:-} /bin/bash -c "$1"
+          SH
+          chmod 755 "$RUNNER_TEMP/as.sh"; sudo cp "$RUNNER_TEMP/as.sh" /usr/local/bin/as-bstudio
+          sudo mkdir -p /Users/Shared/bs
+          sudo cp -R "ملفات لكلود" /Users/Shared/bs/
+          sudo cp .github/test/arabic-speech.mp3 /Users/Shared/bs/
+          sudo chmod -R a+rX /Users/Shared/bs
+          as-bstudio 'echo "home: $HOME"; ls "$HOME"; ls "$HOME/.claude" 2>&1 | head -1'
+      - name: install the two skills
+        run: |
+          as-bstudio 'bash "/Users/Shared/bs/ملفات لكلود/install.sh"'
+          echo "T_SKILLS=$(date +%s)" >> "$GITHUB_ENV"
+      - name: the check on this Mac names what is missing — Node and ffmpeg
+        run: |
+          set +e
+          as-bstudio 'bash ~/.claude/skills/edit-studio/scripts/setup.sh' > "$RUNNER_TEMP/check.txt" 2>&1; rc=$?
+          set -e
+          cat "$RUNNER_TEMP/check.txt"; echo "check exit $rc"
+          [ $rc -eq 11 ] || { echo "the check ends $rc, not 11 (montage tools missing)"; exit 1; }
+          grep 'ناقص من أدوات المونتاج' "$RUNNER_TEMP/check.txt" > "$RUNNER_TEMP/missing.txt" || { echo "no «ناقص من أدوات المونتاج» line"; exit 1; }
+          for t in 'Node' 'ffmpeg'; do grep -q "$t" "$RUNNER_TEMP/missing.txt" || { echo "the check does not say «$t» is missing"; exit 1; }; done
+          grep -q 'Python' "$RUNNER_TEMP/missing.txt" && echo "Python named too" || echo "Python not named: /usr/bin/python3 answers here (a new Mac would ask for the command line tools)"
+      - name: setup install with no Homebrew — the person is told to paste Homebrew's line, nothing else is installed
+        run: |
+          set +e
+          as-bstudio 'bash ~/.claude/skills/edit-studio/scripts/setup.sh --install' > "$RUNNER_TEMP/nobrew.txt" 2>&1; rc=$?
+          set -e
+          cat "$RUNNER_TEMP/nobrew.txt"; echo "setup exit $rc"
+          [ $rc -eq 11 ] || { echo "setup ends $rc without Homebrew, not 11"; exit 1; }
+          grep -q 'لازم Homebrew أول' "$RUNNER_TEMP/nobrew.txt" || { echo "the Homebrew line is not there"; exit 1; }
+          # the very line the person pastes, as the montage skill prints it
+          sed -n 's/.*بالتيرمنال: \(.*\)$/\1/p' "$RUNNER_TEMP/nobrew.txt" | head -1 > "$RUNNER_TEMP/brew-line.txt"
+          grep -q 'raw.githubusercontent.com/Homebrew/install/HEAD/install.sh' "$RUNNER_TEMP/brew-line.txt" || { echo "no Homebrew command in it"; cat "$RUNNER_TEMP/brew-line.txt"; exit 1; }
+          test ! -e /opt/homebrew
+          test ! -d /Users/bstudio/Documents/video-edit/studio/app
+      - name: Homebrew, the way the person installs it (its line, as that user; NONINTERACTIVE stands for the Return they press)
+        run: |
+          t=$(date +%s)
+          EXTRA='NONINTERACTIVE=1' as-bstudio "$(cat "$RUNNER_TEMP/brew-line.txt")"
+          echo "Homebrew: $(( $(date +%s) - t )) s"; echo "T_BREW=$(( $(date +%s) - t ))" >> "$GITHUB_ENV"
+          test -x /opt/homebrew/bin/brew
+      - name: setup install as the follower runs it — brew brings ffmpeg, Node and Python; the montage venv, the studio, its sound tools, the model, the app
+        run: |
+          t=$(date +%s)
+          set +e
+          as-bstudio 'bash ~/.claude/skills/edit-studio/scripts/setup.sh --install' 2>&1 | tee "$RUNNER_TEMP/setup.txt"; rc=${PIPESTATUS[0]}
+          if [ $rc -eq 11 ]; then as-bstudio 'bash ~/.claude/skills/edit-studio/scripts/setup.sh --install' 2>&1 | tee -a "$RUNNER_TEMP/setup.txt"; rc=${PIPESTATUS[0]}; fi
+          set -e
+          echo "setup exit $rc in $(( $(date +%s) - t )) s"; echo "T_SETUP=$(( $(date +%s) - t ))" >> "$GITHUB_ENV"
+          df -h / | tail -1; sudo du -sh /Users/bstudio/Documents/video-edit /opt/homebrew 2>/dev/null || true
+          [ $rc -eq 0 ] || exit $rc
+          grep -q 'النتيجة' "$RUNNER_TEMP/setup.txt" || { echo "the doctor did not run"; exit 1; }
+      - name: its tools are Homebrew's now, and the montage Python is its own venv
+        run: |
+          as-bstudio 'export PATH="/opt/homebrew/bin:$PATH"; for t in node ffmpeg python3; do echo "$t: $(command -v $t) $($t --version 2>&1 | head -1)"; done'
+          as-bstudio 'command -v node ffmpeg || echo "(a new Terminal PATH has no Homebrew until brew shellenv is added: the studio puts /opt/homebrew/bin first itself)"'
+          as-bstudio '~/Documents/video-edit/tools/py/bin/python -c "import sys, mlx_whisper, numpy; print(sys.prefix)"'
+          as-bstudio 'cat ~/Documents/video-edit/tools/py/pyvenv.cfg'
+      - name: does this VM have a Metal GPU for mlx-whisper (the Mac's transcriber)?
+        id: metal
+        run: |
+          ok="$(as-bstudio '~/Documents/video-edit/tools/py/bin/python -c "import mlx.core as mx; print(int(mx.metal.is_available()))"' 2>&1 | tail -1)"
+          echo "metal: $ok"
+          if [ "$ok" = 1 ]; then echo "ok=1" >> "$GITHUB_OUTPUT"
+          else echo "ok=0" >> "$GITHUB_OUTPUT"; echo "::warning::no Metal GPU on this runner: mlx-whisper cannot run here, so «Arabic sentences on a clean Mac» is NOT covered by this job"; fi
+      - name: the studio works on it — it starts from the new user's install, and «مقطع جديد» on Arabic speech gives Arabic sentences
+        if: steps.metal.outputs.ok == '1'
+        run: |
+          as-bstudio 'bash ~/Documents/video-edit/studio/app/scripts/start.sh --no-open'
+          URL="$(as-bstudio 'bash ~/Documents/video-edit/studio/app/scripts/studio.sh status' | sed -n 's/^running: //p')"
+          echo "studio: $URL"; test -n "$URL"
+          as-bstudio '/opt/homebrew/bin/ffmpeg -nostdin -v error -y -i /Users/Shared/bs/arabic-speech.mp3 -f lavfi -i testsrc2=size=360x640:rate=30 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac -ar 48000 ~/Movies/arabic.mp4'
+          cat > "$RUNNER_TEMP/arabic_words.py" <<'PY'
+          import json, os, re, time, urllib.error, urllib.parse, urllib.request
+          # «مقطع جديد» with the whole montage on a clip of Arabic speech (ElevenLabs' «Saad», never the author's voice), with the
+          # default settings: the sentences come, in Arabic, and words of what was said are in them. env: URL, VIDEO, NAME
+          url, video, name = os.environ['URL'].rstrip('/'), os.environ['VIDEO'], os.environ['NAME']
+
+
+          def call(path, body=None, timeout=60):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or '{}')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or '{}')
+              except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                  return 0, {'error': str(e)}
+
+
+          t0 = time.time()
+          st, j = call('/api/raw/start', {'path': video, 'name': name, 'mode': 'full', 'face': 'none'})
+          print('start', st, json.dumps(j, ensure_ascii=False))
+          assert st == 202 and j.get('folder'), j
+          q, c, last = '/x/' + urllib.parse.quote(j['folder']) + '/api/cut', {}, 0
+          while time.time() - t0 < 1800:
+              st, c = call(q)
+              if st == 200 and c.get('state') == 'ready':
+                  break
+              if st == 200 and (c.get('state') == 'stalled' or c.get('hearFail')):
+                  raise SystemExit('stopped: ' + json.dumps(c, ensure_ascii=False)[:1500])
+              if time.time() - last > 30:
+                  last = time.time(); print(f'  {int(last - t0)} s', c.get('state'), c.get('step'), c.get('pct'), flush=True)
+              time.sleep(2)
+          else:
+              raise SystemExit('not ready in 30 min: ' + json.dumps(c, ensure_ascii=False)[:1500])
+          said = ' '.join(i['text'] for i in c.get('islands', []) if i.get('text', '').strip())
+          print(f'sentences after {int(time.time() - t0)} s:', c.get('heard'), said)
+          words = said.split()
+          arabic = [w for w in words if re.search('[؀-ۿ]', w)]
+          assert words and len(arabic) >= 0.8 * len(words), 'not Arabic: ' + said
+          hits = [w for w in ('مرحبا', 'اختبار', 'التفريغ', 'العربي', 'ويندوز', 'الجمل', 'الكابشن') if w in said]
+          print('words of the sentence heard:', hits)
+          assert len(hits) >= 3, 'the sentence said is not there: ' + said
+          print('PASSED')
+          PY
+          sudo cp "$RUNNER_TEMP/arabic_words.py" /Users/Shared/bs/ && sudo chmod a+r /Users/Shared/bs/arabic_words.py
+          EXTRA="URL=$URL VIDEO=/Users/bstudio/Movies/arabic.mp4 NAME=جمل-على-ماك-نظيف" as-bstudio '~/Documents/video-edit/tools/py/bin/python /Users/Shared/bs/arabic_words.py'
+          echo "T_WORDS=done" >> "$GITHUB_ENV"
+      - name: what was covered, and what was not (info)
+        if: always()
+        run: |
+          {
+            echo "## A clean Mac (mac-install.yml)"
+            echo "- skills installed, the check named what was missing, Homebrew asked for: see the steps"
+            echo "- Homebrew: ${T_BREW:-?} s · setup.sh --install: ${T_SETUP:-?} s · whole job so far: $(( $(date +%s) - ${T0:-$(date +%s)} )) s"
+            if [ "${T_WORDS:-}" = done ]; then echo "- Arabic sentences from a new clip: covered"
+            else echo "- Arabic sentences from a new clip: NOT covered (no Metal GPU on this runner, or an earlier step failed)"; fi
+            echo "- not a new Mac: Xcode and its command line tools stayed, sudo had no password, Chrome stayed"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+      - name: stop
+        if: always()
+        run: as-bstudio 'bash ~/Documents/video-edit/studio/app/scripts/studio.sh stop --force' || true
+      - name: server log
+        if: always()
+        run: as-bstudio 'tail -n 30 ~/Documents/video-edit/studio/server.log' 2>/dev/null || true

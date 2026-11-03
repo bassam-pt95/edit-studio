@@ -109,8 +109,12 @@ fi
 # Homebrew بـ--break-system-packages (مقفول على التثبيت العادي)، واول brew upgrade لبايثون يخليها وراه ويوقف التفريغ.
 # BASEPY = بايثون الجهاز اللي ينبني منه الـvenv. PY = بايثون الـvenv: الفحص عليه، ولو ما يشتغل (انشال بايثون اللي انبنى منه) ناقص.
 # السكربتات تشتغل عليه بنفسها: _venv.py يعيد تشغيل السكربت فيه لو انشغل بـpython3 حق الجهاز
+# BASEPY بالماك 3.11 او احدث (نسخ الـvenv الثابتة تبيها): بايثون أبل (/usr/bin/python3 من أدوات Xcode، 3.9) ما يكفي، فيصير بايثون
+# ناقص وHomebrew ينزّل غيره. قبل كان الـvenv ينبني منه، pip يفشل فيه، وكل --install بعدها يبقيه (مراجعة 1.0.19، I1)
+py_new(){ "$1" -c 'import sys; sys.exit(sys.version_info < (3, 11))' </dev/null >/dev/null 2>&1; }
+mac_base(){ local c; BASEPY=""; hash -r; for c in python3 python3.14 python3.13 python3.12 python3.11; do have "$c" && py_new "$c" && { BASEPY="$c"; return 0; }; done; return 1; }
 if [ "$OS" = mac ]; then
-  VEB="${VEB_HOME:-$HOME/Documents/video-edit}"; VENV="$VEB/tools/py"; VPY="$VENV/bin/python"; BASEPY="$PY"; PY="$VPY"
+  VEB="${VEB_HOME:-$HOME/Documents/video-edit}"; VENV="$VEB/tools/py"; VPY="$VENV/bin/python"; mac_base; PY="$VPY"
 fi
 fi
 pymod(){ "$PY" -c "import $1" 2>/dev/null; }
@@ -196,7 +200,7 @@ if [ "$OS" = win ]; then   # ويندوز: numpy والتفريغ وكاشف ا�
       if curl -fsSL --retry 2 -o "$MODEL.part" "$MODNET_URL" && [ "$(sha256sum "$MODEL.part" | cut -d' ' -f1)" = "$MODNET_SHA" ]; then mv -f "$MODEL.part" "$MODEL"
       else rm -f "$MODEL.part"; line "⚠️  نموذج قص الشخص ما نزل او بصمته (sha256) مو نفس المثبتة، فما انحفظ"; fi
     fi
-    if ! dml_ok; then
+    if ! dml_ok; then   # القص بكرت الشاشة ما جربناه بالفحص: مكتباته تبقى بحدودها
       line "⏬ ادوات القص بكرت الشاشة (onnxruntime-directml ~85 ميقا)…"
       { [ -x "$CPY" ] || "${BASEPY:-$VPY}" -m venv "$CUT"; } &&
         "$CPY" -m pip install --quiet --disable-pip-version-check --only-binary=:all: onnxruntime-directml numpy "opencv-python-headless<5" ||
@@ -208,7 +212,11 @@ if [ "$OS" = win ]; then   # ويندوز: numpy والتفريغ وكاشف ا�
   else line "اختياري: قص الشخص بنموذج على كرت الشاشة (حواف شعر احسن لتاثير الكلام ورا الشخص) ~110 ميقا: $0 --install --cutout"; fi
   [ -s "$ISNET" ] && OK+=("قص الصور") || line "اختياري: نموذج قص الصور (الكولاج والصور المولدة) ~180 ميقا: $0 --subjectcut. بدونه subjectcut.py يقص الخلفية السادة بس"
 else
+if [ "$OS" = mac ]; then   # ماك: بايثون 3.11 او احدث ينبني منه الـvenv، او venv منه يشتغل
+  { [ -n "$BASEPY" ] || py_new "$VPY"; } && OK+=("python") || { MISS+=("python"); SIZE+=("Python 3.11 أو أحدث ~50 ميقا$(have python3 && printf ' (اللي عندك %s قديم)' "$(python3 -V 2>&1)")"); }
+else
 have "${BASEPY:-$PY}" && OK+=("python") || { MISS+=("python"); SIZE+=("Python ~50 ميقا"); }
+fi
 if [ "$OS" = mac ]; then   # ماك: numpy والتفريغ من venv ادوات المونتاج، فحجمها سطر واحد (mlx وtorch وscipy…)
   STT=mlx_whisper; VSIZE="~280 ميقا"; [ $APPLE -eq 1 ] || { STT=faster_whisper; VSIZE="~150 ميقا"; }
   if pymod numpy && pymod $STT; then OK+=("numpy" "التفريغ")
@@ -251,11 +259,14 @@ if [ "$OS" = win ]; then
   pipi(){ "$VPY" -m pip install --quiet "$@"; }; VDONE=""
   # الـvenv بنسخ مثبتة: numpy<2 (يبيها mediapipe)، av<15 (faster-whisper 1.2.1 يمرر metadata_errors اللي انشال من av 15)،
   # mediapipe 0.10.21 (اخر نسخة فيها mp.solutions) وهو يجيب opencv-contrib-python، فلا opencv-python معه (نسختين من cv2).
-  # --only-binary: الويندوز ما فيه مترجم C، فنسخة بلا wheel (مثل av 14.4.0) تفشل، وكذا pip ياخذ اخر نسخة لها wheel
+  # --only-binary: الويندوز ما فيه مترجم C، فنسخة بلا wheel (مثل av 14.4.0) تفشل، وكذا pip ياخذ اخر نسخة لها wheel.
+  # النسخ نفسها اللي ركبها اخر فحص ويندوز ناجح (2 نوفمبر 2026، مراجعة 1.0.19 S15)، مو اخر شي ينزل ذاك اليوم. venv قديم
+  # فيه نسخ ثانية تشتغل (الفحص فوق) ما ينلمس
   venv_install(){
     [ -n "$PY" ] || { [ -n "$BASEPY" ] && "$BASEPY" -m venv "$VENV"; } || return 1
     PY="$VPY"
-    "$VPY" -m pip install --quiet --disable-pip-version-check --only-binary=:all: "numpy<2" "faster-whisper>=1.2" "ctranslate2>=4.6.3,<5" "av<15" "mediapipe==0.10.21" || return 1
+    "$VPY" -m pip install --quiet --disable-pip-version-check --only-binary=:all: "numpy==1.26.4" "faster-whisper==1.2.1" "ctranslate2==4.8.4" "av==14.2.0" "mediapipe==0.10.21" || return 1
+    # كرت NVIDIA حقيقي ما جربناه (الفحص بلا كرت): cuBLAS يبقى بحدوده
     if nvidia-smi -L >/dev/null 2>&1; then "$VPY" -m pip install --quiet --disable-pip-version-check --only-binary=:all: "nvidia-cublas-cu12>=12.8"; fi
   }
   # Node وكروم مثبتات للجهاز كله: حتى مع --silent تطلع نافذة الاذن (UAC) وwinget ينطرها، وممكن تطلع ايقونة تومض بس
@@ -263,12 +274,14 @@ if [ "$OS" = win ]; then
 else
 pipi(){ $PY -m pip install --quiet --user "$@" 2>/dev/null || $PY -m pip install --quiet --break-system-packages "$@" 2>/dev/null || $PY -m pip install --quiet "$@"; }
 # ماك: الـvenv بالنسخ اللي اشتغلت على بايثون 3.14 (نوفمبر 2026). venv ما يشتغل (بايثون اللي انبنى منه انشال): --clear يبنيه من
-# جديد من بايثون الجهاز الحالي. ماك إنتل: faster-whisper بنفس حدود ويندوز (ما جربناه). بلا PYTHONPATH: معه الـvenv يسجل مسار
+# جديد من بايثون الجهاز الحالي. ماك إنتل: faster-whisper وctranslate2 بنسخ ويندوز المجربة وnumpy بنسخة الاستوديو (ماك إنتل نفسه ما
+# جربناه، وonnxruntime ما له wheel لبايثون 3.14 على إنتل بنوفمبر 2026: التنزيل يفشل هناك ويقول). بلا PYTHONPATH: معه الـvenv يسجل مسار
 # Cellar حق النسخة (ينمسح مع brew cleanup بعد اول تحديث) بدل opt/python@3.x الثابت، وpip يشوف مكتبات غيره
 mac_venv(){
-  "$VPY" -c 'import sys' >/dev/null 2>&1 || env -u PYTHONPATH -u PYTHONHOME "$BASEPY" -m venv --clear "$VENV" || return 1
+  # venv من بايثون اقدم من 3.11 (بايثون أبل، من 00_setup.sh قبل 1.0.23) ينبني من جديد، ولا شي بلا بايثون جديد
+  py_new "$VPY" || { [ -n "$BASEPY" ] && env -u PYTHONPATH -u PYTHONHOME "$BASEPY" -m venv --clear "$VENV"; } || return 1
   if [ $APPLE -eq 1 ]; then env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy==2.5.2" "mlx==0.32.2" "mlx-whisper==0.4.3" "torch==2.13.0"
-  else env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy<3" "faster-whisper>=1.2" "ctranslate2>=4.6.3,<5"; fi
+  else env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy==2.5.4" "faster-whisper==1.2.1" "ctranslate2==4.8.4"; fi
 }
 fi
 winget_i(){ winget install --silent --accept-package-agreements --accept-source-agreements -e --id "$@"; }
@@ -277,9 +290,10 @@ for m in "${MISS[@]}"; do
   if [ "$OS" = win ]; then   # ويندوز: numpy والتفريغ وكاشف الوجه venv واحد ينبني مرة وحدة (بعد بايثون)
     case "$m" in numpy|faster-whisper|mediapipe)
       [ -n "$VDONE" ] || { VDONE=1; line "⏬ ادوات بايثون للمونتاج…"; venv_install || NOTE+=("ادوات بايثون للمونتاج فشلت"); }; continue ;;
-    cuda-libs)   # cuBLAS 12 بس: ctranslate2 من 4.6.3 ما يحتاج cuDNN
+    cuda-libs)   # cuBLAS 12 بس: ctranslate2 من 4.6.3 ما يحتاج cuDNN. ctranslate2 بنسخة الـvenv (ما يترقى معه)، وcuBLAS
+                 # بحدوده: كرت NVIDIA حقيقي ما جربناه
       line "⏬ مكتبات كرت NVIDIA…"
-      "$VPY" -m pip install --quiet --disable-pip-version-check --only-binary=:all: "ctranslate2>=4.6.3,<5" "nvidia-cublas-cu12>=12.8" || NOTE+=("مكتبات كرت NVIDIA فشلت"); continue ;;
+      "$VPY" -m pip install --quiet --disable-pip-version-check --only-binary=:all: "ctranslate2==4.8.4" "nvidia-cublas-cu12>=12.8" || NOTE+=("مكتبات كرت NVIDIA فشلت"); continue ;;
     ffmpeg-old)  # ffmpeg اقدم من 7: winget يرقيه، ولو ما نزل من winget ينزل نسخة جديدة
       if ! have winget; then NOTE+=("winget مو موجود: حدث «App Installer» من متجر مايكروسوفت"); continue; fi
       line "⏬ ffmpeg…"
@@ -299,7 +313,7 @@ for m in "${MISS[@]}"; do
     ffmpeg|node|python)
       if [ "$OS" = mac ]; then
         if ! have brew; then NOTE+=("لازم Homebrew أول — المستخدم يلصق هذا بالتيرمنال: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""); continue; fi
-        case $m in ffmpeg) line "⏬ ffmpeg…"; brew install ffmpeg ;; node) line "⏬ Node…"; brew install node ;; python) line "⏬ Python…"; brew install python ;; esac || NOTE+=("$m فشل")
+        case $m in ffmpeg) line "⏬ ffmpeg…"; brew install ffmpeg ;; node) line "⏬ Node…"; brew install node ;; python) line "⏬ Python…"; brew install python && mac_base ;; esac || NOTE+=("$m فشل")
       elif [ "$OS" = win ]; then
         if ! have winget; then NOTE+=("winget مو موجود — حدّث «App Installer» من متجر مايكروسوفت"); continue; fi
         case $m in ffmpeg) line "⏬ ffmpeg…"; winget_i Gyan.FFmpeg ;; node) line "⏬ Node…"; line "$UAC"; winget_i OpenJS.NodeJS.LTS "${X64[@]}" ;; python) line "⏬ Python…"; winget_i Python.Python.3.12 "${X64[@]}" ;; esac

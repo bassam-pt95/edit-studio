@@ -1,9 +1,11 @@
 # The studio's Python: voice cleaning (noise with DPDFNet, echo with WPE) and drawn scenes.
 # ASCII only: on Windows pip reads this file in the system's own encoding, and a non-ASCII comment stopped the install.
+# Exact versions (audit 1.0.19, S15): the ones the Windows check (Python 3.12) and the Mac trials (Python 3.14) installed
+# and ran on 2 November 2026, not whatever is newest on the day of an install. What they pull in themselves is not pinned.
 dpdfnet==0.6.0
 nara-wpe==0.0.11
-soundfile
-numpy
-scipy
-opencv-python-headless
-pillow
+soundfile==0.14.0
+numpy==2.5.4
+scipy==1.18.1
+opencv-python-headless==5.0.0.93
+pillow==13.0.0

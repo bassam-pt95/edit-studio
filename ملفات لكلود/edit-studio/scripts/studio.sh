@@ -13,9 +13,15 @@
 #   bash studio.sh cuts <مجلد المشروع> <ملف mp4> [--range f0:f1]   فحص كل قصّة بملف مصدَّر (التصدير يسويه لحاله)
 #   bash studio.sh sounds <مجلد المشروع> [<ملف mp4> [--range f0:f1]]   هل ضربة كل صوت على مكانها؟ (التصدير يسويه لحاله)
 #   bash studio.sh dissect <ملف فيديو مرجع> [--out <مجلد>]   تشريح مقطع مرجع: صور مرقّمة وأرقام · dissect report <المجلد> [--open] ← التقرير
-#   bash studio.sh stop                                    يوقف الاستوديو (ملفاته فقط)
+#   bash studio.sh busy [--wait <ثواني>]                    وش يسوي الاستوديو الحين: free · not running · busy وسطر عربي (خروج 4)
+#   bash studio.sh stop [--force]                          يوقف الاستوديو (ملفاته فقط)؛ وهو يصدّر أو يبني يرفض (خروج 4) إلا مع --force
 . "$(dirname "$0")/_common.sh"
 device_ok || { echo "$MSG_DEVICE"; exit 20; }
+# busy (قبل التحديث، الخطوة 0ج): start.mjs اللي جنب هالسكربت (نفس نسخته، فيعرف --busy). المثبّت ممكن أقدم ويشغّل استوديو بداله
+if [ "${1:-}" = busy ]; then
+  NODE="$(find_node)" || { echo "not running"; exit 0; }
+  shift; exec "$NODE" "$PKG_DIR/studio/start.mjs" --busy "$@"
+fi
 installed || { echo "$MSG_NOT_INSTALLED"; exit 12; }
 NODE="$(find_node)" || { echo "ما لقيت Node على الجهاز."; exit 11; }
 T="$APP/studio/tools"
@@ -100,6 +106,6 @@ case "$cmd" in
   dissect)
     need "${1:-}"; exec "$NODE" "$T/dissect.mjs" "$@" ;;
   stop)
-    exec "$NODE" "$APP/studio/start.mjs" --stop ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+    exec "$NODE" "$APP/studio/start.mjs" --stop "$@" ;;
+  *) sed -n '2,18p' "$0"; exit 2 ;;
 esac

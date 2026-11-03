@@ -1334,6 +1334,10 @@ jobs:
           printf '%s  edit-studio-99.0.0.tar.gz\n' "$(printf 'x' | sha256sum 2>/dev/null | cut -d' ' -f1 || printf 'x' | shasum -a 256 | cut -d' ' -f1)" > "$HOME/rel-new/latest/download/SHA256SUMS"
           ( cd "$HOME/rel-new" && exec "$PYX" -m http.server 8999 --bind 127.0.0.1 >/dev/null 2>&1 ) & echo $! > "$HOME/http.pid"   # exec: the pid is the server's
           bash "$S/studio.sh" stop --force || true
+          # the studio read GitHub's real release earlier in this job and keeps that for a day (update-check.json, by design):
+          # without it, its first check reads the release served here (run 41616497509 got «latest 1.0.23», no newer)
+          rm -f "$HOME/Documents/video-edit/studio/home/update-check.json"
+          test ! -e "$HOME/Documents/video-edit/studio/home/update-check.json"
           STUDIO_RELEASES=http://127.0.0.1:8999 bash "$S/start.sh" --no-open
           URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"; URL="${URL%/}"
           ok=0; for i in $(seq 1 60); do curl -fsS "$URL/api/update" | tee "$HOME/upd.json" | grep -q '"newer":true' && { ok=1; break; }; sleep 2; done

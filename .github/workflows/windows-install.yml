@@ -1928,8 +1928,11 @@ jobs:
           bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" > "$HOME/check.txt" 2>&1; rc=$?
           set -e
           cat "$HOME/check.txt"; echo "check exit $rc"
-          sed -n '/الناقص/,$p' "$HOME/check.txt" > "$HOME/missing.txt"
-          for t in 'أداة القص والصوت' 'Node' 'Python'; do grep -q "$t" "$HOME/missing.txt" || { echo "the check does not say «$t» is missing"; exit 1; }; done
+          # setup.sh's own line and its code for missing montage tools (run 41576618772 looked for the montage skill's words,
+          # «الناقص:» and «أداة القص والصوت», which setup.sh never prints)
+          [ $rc -eq 11 ] || { echo "the check ends $rc, not 11 (montage tools missing)"; exit 1; }
+          grep 'ناقص من أدوات المونتاج' "$HOME/check.txt" > "$HOME/missing.txt" || { echo "the check has no «ناقص من أدوات المونتاج» line"; exit 1; }
+          for t in 'ffmpeg' 'Node' 'Python'; do grep -q "$t" "$HOME/missing.txt" || { echo "the check does not say «$t» is missing"; exit 1; }; done
       - name: setup install as the follower runs it — winget brings Node, Python 3.12 and ffmpeg; on exit 11 a new shell with the PATH Windows has now (Claude closed and opened), and once more
         run: |
           set +e

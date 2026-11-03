@@ -1805,8 +1805,9 @@ jobs:
     # The runner is not a new PC, and this job says what it cannot be instead of pretending:
     #  · Node and Python come with the image: they are uninstalled the way Windows lists them (Settings > Apps), the folders
     #    the image keeps outside that list (its tool cache) are taken off every PATH and renamed; then checked: none answers.
-    #  · winget is not on this image (a follower's Windows 10/11 has it, «App Installer»): Microsoft's own PowerShell module
-    #    (Microsoft.WinGet.Client, Repair-WinGetPackageManager) puts it here first.
+    #  · winget: Windows Server 2025 carries «App Installer» as a follower's Windows 10/11 does. The image's own winget when it
+    #    answers; when it does not, App Installer from microsoft/winget-cli's release (pinned, its SHA-256 checked) is added for
+    #    this user first. Either way it answers from the user's WindowsApps on PATH, as on a home PC.
     #  · the runner has no UAC prompt: a follower presses «نعم» on one for Node; nothing presses it here.
     #  · Chrome stays (the image has it); a follower may have only Edge. Git Bash stays (Claude Code needs it on Windows).
     # Then the follower's path itself: install.sh, the check (it names Node, Python and ffmpeg as missing), setup.sh --install
@@ -1821,7 +1822,7 @@ jobs:
       - name: keep line endings
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
-      - name: a machine with no Node, Python or ffmpeg — the image's uninstalled, its tool cache off every PATH, checked; winget from Microsoft's module
+      - name: a machine with no Node, Python or ffmpeg — the image's uninstalled, its tool cache off every PATH, checked; winget as a home PC has it (App Installer, from the user's WindowsApps)
         shell: pwsh
         run: |
           $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
@@ -1858,16 +1859,52 @@ jobs:
           $keep = { param($d) $d -and $d -notmatch 'hostedtoolcache|\\nodejs|\\npm$|\\Python\d' -and -not ($tools | Where-Object { Test-Path -LiteralPath (Join-Path $d $_) }) }
           $clean = { param($list) ($list -split ';' | Where-Object { & $keep $_ }) -join ';' }
           foreach ($s in 'Machine', 'User') { [Environment]::SetEnvironmentVariable('Path', (& $clean ([Environment]::GetEnvironmentVariable('Path', $s))), $s) }
-          # winget (Microsoft's module), and its folder on the user's PATH as on a home PC
-          # (run 41485971111: Install-PackageProvider's NuGet comes from a CDN Microsoft retired, «No match was found … 'NuGet'») the
-          # module from the PowerShell Gallery through PSResourceGet, the module installer pwsh 7.4+ carries itself
-          # (run 41487587106: Set-PSResourceRepository found no repository store yet on this image) reading the list makes the store;
-          # the gallery trusted for this one install only
-          Get-PSResourceRepository -Name PSGallery | Out-Null
-          Install-PSResource Microsoft.WinGet.Client -Repository PSGallery -Scope AllUsers -TrustRepository -Quiet
-          Import-Module Microsoft.WinGet.Client
-          Repair-WinGetPackageManager -AllUsers -Force -Latest
+          # winget, and its folder on the user's PATH as on a home PC. No module: Microsoft.WinGet.Client failed here three ways
+          # (runs 41485971111, 41487587106: its NuGet CDN retired, no repository store; run 41492778524: Repair-WinGetPackageManager
+          # -AllUsers registered the image's own older bundle for every user and Add-AppxPackage refused it, 0x80073CF1 «does not
+          # have an appropriate application package for x64»). The image's own winget when it answers; when it does not, App
+          # Installer v1.29.380 from microsoft/winget-cli's release, its SHA-256 pinned, with the x64 dependencies the release ships,
+          # added for this user as the full app (the bundle also carries the Store's stub)
           $apps = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+          $answers = { $w = Join-Path $apps 'winget.exe'; if (Test-Path -LiteralPath $w) { try { $v = "$(& $w --version)".Trim(); if ($LASTEXITCODE -eq 0 -and $v -match '^v\d') { $v } } catch { Write-Host "  winget.exe there does not start: $_" } } }
+          $v = & $answers
+          if ($v) { "winget the image has: $v" } else {
+            'no winget answers on this image: App Installer v1.29.380 from the release'
+            $ProgressPreference = 'SilentlyContinue'
+            $rel = 'https://github.com/microsoft/winget-cli/releases/download/v1.29.380'
+            $sha = @{ 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle' = '65DEA9C01CE08EE7B763366B27C0E651F97DB857C11CA9B9C301826C10092F2E'
+                      'DesktopAppInstaller_Dependencies.zip' = 'BA875AFE9D190F61218985AC0292A99D1DB710BF93E13C68944CA9D89F0D82D1' }
+            foreach ($n in $sha.Keys) {
+              Invoke-WebRequest "$rel/$n" -OutFile (Join-Path $env:RUNNER_TEMP $n)
+              $h = (Get-FileHash (Join-Path $env:RUNNER_TEMP $n) -Algorithm SHA256).Hash
+              if ($h -ne $sha[$n]) { throw "$n is not the release's own (SHA-256 $h)" }
+            }
+            Expand-Archive (Join-Path $env:RUNNER_TEMP 'DesktopAppInstaller_Dependencies.zip') (Join-Path $env:RUNNER_TEMP 'wg-deps') -Force
+            # the three DesktopAppInstaller_Dependencies.json lists: VCLibs.140.00, its UWPDesktop, WindowsAppRuntime.1.8
+            $deps = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'wg-deps\x64') -Filter *.appx | ForEach-Object FullName)
+            if ($deps.Count -ne 3) { throw "the release's x64 dependencies are not its three: $($deps -join ' | ')" }
+            # in Windows PowerShell, its own Appx module: pwsh reaches Appx through a remote session that turns -DependencyPath's
+            # list into one string. A refusal prints its deployment log (Get-AppPackageLog) before the step stops
+            powershell.exe -NoProfile -Command {
+              param($bundle, $deps)
+              $ErrorActionPreference = 'Stop'
+              $ai = { (Get-AppxPackage -Name Microsoft.DesktopAppInstaller | ForEach-Object { "$($_.Version) $($_.Architecture) $($_.Status)" }) -join ' | ' }
+              "App Installer for this user before: $(& $ai)"
+              $o = @{ Path = $bundle; DependencyPath = @($deps -split '\|') }
+              if ((Get-Command Add-AppxPackage).Parameters.ContainsKey('StubPackageOption')) { $o.StubPackageOption = 'InstallFull' }
+              try { Add-AppxPackage @o } catch {
+                "Add-AppxPackage: $_"
+                if ("$_" -match 'ActivityId\]\s*([0-9a-fA-F-]{36})') { try { Get-AppPackageLog -ActivityID $Matches[1] | Select-Object -First 40 | ForEach-Object { "    $($_.Message)" } } catch { "    (no deployment log: $_)" } }
+                throw
+              }
+              "App Installer for this user now: $(& $ai)"
+            } -args (Join-Path $env:RUNNER_TEMP 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle'), ($deps -join '|')
+            if ($LASTEXITCODE -ne 0) { throw "App Installer was not added (Windows PowerShell exit $LASTEXITCODE)" }
+            # its alias in WindowsApps may land a moment after the deployment returns: waited on, never read once
+            for ($i = 0; $i -lt 60 -and -not ($v = & $answers); $i++) { Start-Sleep -Seconds 1 }
+            if (-not $v) { throw "winget does not answer from $apps after App Installer was added" }
+            "winget added: $v"
+          }
           $u = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (($u -split ';') -notcontains $apps) { [Environment]::SetEnvironmentVariable('Path', ($u.TrimEnd(';') + ';' + $apps).TrimStart(';'), 'User') }
           # every later step starts with this machine's PATH, as a program opened now would (and Git's tools)
@@ -1875,8 +1912,9 @@ jobs:
           foreach ($g in 'C:\Program Files\Git\bin', 'C:\Program Files\Git\cmd') { if (($now -split ';') -notcontains $g) { $now = "$g;$now" } }
           "PATH=$now" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $env:Path = $now
+          # found by its name on that PATH, from the user's WindowsApps (App Installer's alias), as a follower's shell finds it
           $wg = (Get-Command winget -ErrorAction SilentlyContinue).Source
-          if (-not $wg) { $wg = Join-Path $apps 'winget.exe' }
+          if ($wg -notmatch '\\Microsoft\\WindowsApps\\winget\.exe$') { throw "winget is not on PATH from the user's WindowsApps (found: «$wg»)" }
           & $wg --version
           if ($LASTEXITCODE -ne 0) { throw "winget does not answer ($wg)" }
           $found =foreach ($n in 'node', 'python', 'python3', 'py', 'ffmpeg') { Get-Command $n -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch 'WindowsApps' } | ForEach-Object { "$n → $($_.Source)" } }

@@ -21,9 +21,14 @@ jobs:
         with:
           node-version: 26
       # (a follower's machine gets Python 3.12 from winget through 00_setup.sh; the runner has no winget)
+      # 3.10 and 3.11 are for «the voice tools when an older Python comes first» (GitHub #5): the image no longer has them
+      # (run 42201824712, 1.0.24: its first line ended 2). 3.12, the last one, stays every step's default python.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: |
+            3.10
+            3.11
+            3.12
       - name: ffmpeg
         shell: pwsh
         run: choco install ffmpeg -y --no-progress

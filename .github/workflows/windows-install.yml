@@ -87,7 +87,14 @@ jobs:
           "$D/py/Scripts/python.exe" "$D/app/studio/voice/denoise.py" --version --models "$D/app/studio/voice/dpdfnet"
           if ls -d "$D"/py.old-* >/dev/null 2>&1; then echo "FAILED: the old venv was left behind"; exit 1; fi
           rm -rf "$D/py.good"
-          [ $rc -eq 0 ]
+          # setup.sh ends with the doctor's verdict, and this step put the montage venv aside on purpose: with Python 3.10 first
+          # on the PATH the transcriber is missing by construction (run 42203279676: «✗ Python 3.10.11 … بلا أداة التفريغ», exit 1).
+          # That line may be setup's one problem, nothing else may; and with the montage venv back the doctor must be clean.
+          if [ $rc -ne 0 ]; then
+            [ $rc -eq 1 ] && [ "$(grep -c '^✗' setup5.txt)" = 1 ] && grep -q '^✗ Python .*بلا أداة التفريغ' setup5.txt \
+              || { echo "FAILED: setup exit $rc, and not only the transcriber this step put aside"; exit 1; }
+          fi
+          bash "$D/app/scripts/doctor.sh"
       - name: the face tool the montage skill installed on Windows (mediapipe 0.10.21), from its own Python — its detector loads and runs on a frame
         # (audit 1.0.19, P6) it used to pip-install mediapipe into the runner's Python and import it there, which passed even when
         # the skill's install had left it out; now nothing is installed here, and the studio's «face» below reads the same venv

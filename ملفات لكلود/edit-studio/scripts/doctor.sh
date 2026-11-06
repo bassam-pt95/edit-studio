@@ -143,6 +143,7 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
     elif "$PYBIN" -c "import mediapipe" 2>/dev/null; then warn "كاشف الوجه: نسخة mediapipe المثبّتة جديدة وما فيها الكاشف، فأزرار الوجه ما تطلع. الحل: شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
     else warn "كاشف الوجه ناقص: أزرار الوجه ما تطلع بالاستوديو (يثبّته تجهيز مهارة المونتاج)"; fi
   fi
+elif [ "$OS" = mac ] && command -v python3 >/dev/null 2>&1; then bad "Python 3.12 أو أحدث غير موجود (اللي عندك $(python3 -V 2>&1 | sed 's/^Python //') قديم): شغّل setup.sh --install"
 else bad "Python غير موجود"; fi
 
 # Chrome (المعاينة والتصدير)
@@ -193,6 +194,9 @@ if installed && [ -n "$NODE" ]; then
     [ -n "$PV2" ] && [ "$PV2" != "$VER" ] && warn "الحزمة الحالية نسختها $PV2 والمثبّتة $VER: شغّل التحديث"
   fi
   # الصوت
+  if [ "$OS" = mac ] && ! studio_py_ready "$APP/studio/voice/requirements.txt"; then
+    warn "أدوات الصوت ومشاهد الرسم ناقصة أو قديمة: أعد التثبيت"
+  fi
   # تنظيف الضجيج بـDPDFNet (سكربته ونموذجه داخل الحزمة، ومكتبته ببايثون الاستوديو). تثبيت أقدم عنده DeepFilterNet يكمل به
   DN="$APP/studio/voice/denoise.py"; DNM="$APP/studio/voice/dpdfnet"
   DF="$DATA/voice/deep-filter"; [ "$OS" = win ] && DF="$DF.exe"

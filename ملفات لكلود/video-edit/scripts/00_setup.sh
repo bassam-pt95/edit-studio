@@ -109,12 +109,45 @@ fi
 # Homebrew بـ--break-system-packages (مقفول على التثبيت العادي)، واول brew upgrade لبايثون يخليها وراه ويوقف التفريغ.
 # BASEPY = بايثون الجهاز اللي ينبني منه الـvenv. PY = بايثون الـvenv: الفحص عليه، ولو ما يشتغل (انشال بايثون اللي انبنى منه) ناقص.
 # السكربتات تشتغل عليه بنفسها: _venv.py يعيد تشغيل السكربت فيه لو انشغل بـpython3 حق الجهاز
-# BASEPY بالماك 3.11 او احدث (نسخ الـvenv الثابتة تبيها): بايثون أبل (/usr/bin/python3 من أدوات Xcode، 3.9) ما يكفي، فيصير بايثون
-# ناقص وHomebrew ينزّل غيره. قبل كان الـvenv ينبني منه، pip يفشل فيه، وكل --install بعدها يبقيه (مراجعة 1.0.19، I1)
-py_new(){ "$1" -c 'import sys; sys.exit(sys.version_info < (3, 11))' </dev/null >/dev/null 2>&1; }
-mac_base(){ local c; BASEPY=""; hash -r; for c in python3 python3.14 python3.13 python3.12 python3.11; do have "$c" && py_new "$c" && { BASEPY="$c"; return 0; }; done; return 1; }
+# BASEPY بالماك 3.12 او احدث (نسخ الـvenv الثابتة تبيها): بايثون أبل (/usr/bin/python3 من أدوات Xcode، 3.9) ما يكفي، فيصير بايثون
+# ناقص وHomebrew ينزّل غيره. قبل كان الـvenv ينبني منه، pip يفشل فيه، وكل --install بعدها يبقيه (مراجعة 1.0.19، I1).
+# 3.12 مو 3.11: numpy 2.5 يبي Requires-Python >=3.12، وماك فحص 1.0.23 النظيف (اللي عنده 3.11.9 من python.org بس) ما نزل له شي
+py_new(){ "$1" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; }
+# Keep the install and readiness pins together.
+mac_pin_list(){
+  if [ $APPLE -eq 1 ]; then echo "numpy==2.5.2 mlx==0.32.2 mlx-whisper==0.4.3 torch==2.13.0"
+  else echo "numpy==2.5.4 faster-whisper==1.2.1 ctranslate2==4.8.4"; fi
+}
+mac_ready(){
+  env -u PYTHONPATH -u PYTHONHOME "$VPY" -c '
+import sys, platform, importlib.metadata as metadata
+print(platform.python_version())
+if sys.version_info < (3, 12): sys.exit(1)
+for pin in sys.argv[1].split():
+    name, expected = pin.split("==")
+    if metadata.version(name) != expected: sys.exit(1)
+import numpy, importlib
+importlib.import_module(sys.argv[2])
+' "$(mac_pin_list)" "$([ $APPLE -eq 1 ] && echo mlx_whisper || echo faster_whisper)" </dev/null >/dev/null 2>&1
+}
+# Preserve an unfinished new directory too; only a verified replacement can retire the old one.
+venv_recover(){
+  local v="$1" old held
+  shift
+  for old in "$v".old-*; do
+    [ -d "$old" ] || continue
+    "$@" && return 0
+    if [ -e "$v" ]; then
+      held="$(mktemp -d "$v.unfinished-XXXXXX")" || return 1
+      mv "$v" "$held/py" || return 1
+    fi
+    mv "$old" "$v" || return 1
+    return 0
+  done
+}
+mac_base(){ local c; BASEPY=""; hash -r; for c in python3 python3.14 python3.13 python3.12; do have "$c" && py_new "$c" && { BASEPY="$c"; return 0; }; done; return 1; }
 if [ "$OS" = mac ]; then
-  VEB="${VEB_HOME:-$HOME/Documents/video-edit}"; VENV="$VEB/tools/py"; VPY="$VENV/bin/python"; mac_base; PY="$VPY"
+  VEB="${VEB_HOME:-$HOME/Documents/video-edit}"; VENV="$VEB/tools/py"; VPY="$VENV/bin/python"; venv_recover "$VENV" mac_ready || exit 1; mac_base; PY="$VPY"
 fi
 fi
 pymod(){ "$PY" -c "import $1" 2>/dev/null; }
@@ -212,14 +245,14 @@ if [ "$OS" = win ]; then   # ويندوز: numpy والتفريغ وكاشف ا�
   else line "اختياري: قص الشخص بنموذج على كرت الشاشة (حواف شعر احسن لتاثير الكلام ورا الشخص) ~110 ميقا: $0 --install --cutout"; fi
   [ -s "$ISNET" ] && OK+=("قص الصور") || line "اختياري: نموذج قص الصور (الكولاج والصور المولدة) ~180 ميقا: $0 --subjectcut. بدونه subjectcut.py يقص الخلفية السادة بس"
 else
-if [ "$OS" = mac ]; then   # ماك: بايثون 3.11 او احدث ينبني منه الـvenv، او venv منه يشتغل
-  { [ -n "$BASEPY" ] || py_new "$VPY"; } && OK+=("python") || { MISS+=("python"); SIZE+=("Python 3.11 أو أحدث ~50 ميقا$(have python3 && printf ' (اللي عندك %s قديم)' "$(python3 -V 2>&1)")"); }
+if [ "$OS" = mac ]; then   # ماك: بايثون 3.12 او احدث ينبني منه الـvenv، او venv منه يشتغل
+  { [ -n "$BASEPY" ] || py_new "$VPY"; } && OK+=("python") || { MISS+=("python"); SIZE+=("Python 3.12 أو أحدث ~50 ميقا$(have python3 && printf ' (اللي عندك %s قديم)' "$(python3 -V 2>&1)")"); }
 else
 have "${BASEPY:-$PY}" && OK+=("python") || { MISS+=("python"); SIZE+=("Python ~50 ميقا"); }
 fi
 if [ "$OS" = mac ]; then   # ماك: numpy والتفريغ من venv ادوات المونتاج، فحجمها سطر واحد (mlx وtorch وscipy…)
   STT=mlx_whisper; VSIZE="~280 ميقا"; [ $APPLE -eq 1 ] || { STT=faster_whisper; VSIZE="~150 ميقا"; }
-  if pymod numpy && pymod $STT; then OK+=("numpy" "التفريغ")
+  if mac_ready; then OK+=("numpy" "التفريغ")
   else MISS+=("mac-venv"); SIZE+=("أدوات بايثون للمونتاج (numpy والتفريغ) بمجلد خاص $VSIZE + نموذج التفريغ أول تشغيل ~3 قيقا"); fi
 else
 pymod numpy && OK+=("numpy")  || { MISS+=("numpy");  SIZE+=("numpy ~20 ميقا"); }
@@ -273,15 +306,40 @@ if [ "$OS" = win ]; then
   UAC="🔐 بتطلع لك نافذة من ويندوز تطلب الاذن، اضغط «نعم». لو ما ظهرت، شوف الايقونة اللي تومض تحت بشريط المهام"
 else
 pipi(){ $PY -m pip install --quiet --user "$@" 2>/dev/null || $PY -m pip install --quiet --break-system-packages "$@" 2>/dev/null || $PY -m pip install --quiet "$@"; }
-# ماك: الـvenv بالنسخ اللي اشتغلت على بايثون 3.14 (نوفمبر 2026). venv ما يشتغل (بايثون اللي انبنى منه انشال): --clear يبنيه من
+# ماك: الـvenv بالنسخ اللي اشتغلت على بايثون 3.14 (نوفمبر 2026). venv ما يشتغل (بايثون اللي انبنى منه انشال): ينبني من
 # جديد من بايثون الجهاز الحالي. ماك إنتل: faster-whisper وctranslate2 بنسخ ويندوز المجربة وnumpy بنسخة الاستوديو (ماك إنتل نفسه ما
 # جربناه، وonnxruntime ما له wheel لبايثون 3.14 على إنتل بنوفمبر 2026: التنزيل يفشل هناك ويقول). بلا PYTHONPATH: معه الـvenv يسجل مسار
 # Cellar حق النسخة (ينمسح مع brew cleanup بعد اول تحديث) بدل opt/python@3.x الثابت، وpip يشوف مكتبات غيره
+mac_pins(){
+  env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check $(mac_pin_list) && mac_ready
+}
 mac_venv(){
-  # venv من بايثون اقدم من 3.11 (بايثون أبل، من 00_setup.sh قبل 1.0.23) ينبني من جديد، ولا شي بلا بايثون جديد
-  py_new "$VPY" || { [ -n "$BASEPY" ] && env -u PYTHONPATH -u PYTHONHOME "$BASEPY" -m venv --clear "$VENV"; } || return 1
-  if [ $APPLE -eq 1 ]; then env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy==2.5.2" "mlx==0.32.2" "mlx-whisper==0.4.3" "torch==2.13.0"
-  else env -u PYTHONPATH -u PYTHONHOME "$VPY" -m pip install --quiet --disable-pip-version-check "numpy==2.5.4" "faster-whisper==1.2.1" "ctranslate2==4.8.4"; fi
+  old=""
+  venv_recover "$VENV" mac_ready || return 1
+  py_new "$VPY" && { mac_pins; return; }
+  # venv من بايثون اقدم من 3.12 (أبل 3.9، او 3.11 من python.org) او ما يشتغل: ينبني من جديد من BASEPY، ولا شي بلا بايثون جديد.
+  # القديم ما ينمسح قبل: ينشال على جنب، ولو الجديد ما اكتمل (مثلا بلا نت) يرجع مكانه زي ما كان؛ ولو اكتمل يروح لسلة المهملات
+  # (فيه اي شي ركّبه المستخدم بنفسه). مو --clear: كان يمسح القديم ولو فشل الجديد
+  [ -n "$BASEPY" ] || return 1
+  [ ! -e "$VENV.old-$$" ] || return 1
+  saved_traps="$(trap -p EXIT INT TERM)"
+  rollback(){ [ -z "$old" ] || [ ! -d "$old" ] || { rm -rf "$VENV"; mv "$old" "$VENV"; }; }
+  trap 'rollback; trap - EXIT; exit 130' INT
+  trap 'rollback; trap - EXIT; exit 143' TERM
+  trap 'rollback' EXIT
+  if [ -e "$VENV" ]; then old="$VENV.old-$$"; mv "$VENV" "$old" || { trap - EXIT INT TERM; eval "$saved_traps"; return 1; }; fi
+  if env -u PYTHONPATH -u PYTHONHOME "$BASEPY" -m venv "$VENV" && mac_pins; then
+    trap - EXIT INT TERM; eval "$saved_traps"
+    if [ -n "$old" ]; then
+      mkdir -p "$HOME/.Trash" && mv "$old" "$HOME/.Trash/أدوات بايثون المونتاج القديمة $(date '+%Y-%m-%d %H.%M.%S')" \
+        && line "↺ أدوات بايثون القديمة ($("$BASEPY" -V 2>&1 | sed 's/Python //') بدالها) بسلة المهملات" \
+        || NOTE+=("أدوات بايثون القديمة بقت جنب الجديدة: $old")
+    fi
+    return 0
+  fi
+  rollback
+  trap - EXIT INT TERM; eval "$saved_traps"
+  return 1
 }
 fi
 winget_i(){ winget install --silent --accept-package-agreements --accept-source-agreements -e --id "$@"; }

@@ -38,7 +38,8 @@ command -v ffmpeg >/dev/null 2>&1 || MISS+=("ffmpeg")
 command -v ffprobe >/dev/null 2>&1 || MISS+=("ffprobe")
 if [ "$OS" = win ]; then resolve_pybin; [ -n "$PYBIN" ] || MISS+=("Python")   # ويندوز: اختصار المتجر ما ينحسب بايثون
 else
-command -v "$PYBIN" >/dev/null 2>&1 || MISS+=("Python")
+# الماك: من جديد بعد تجهيز المونتاج (ممكن نزّل بايثون Homebrew للتو)، و3.12 او احدث بس
+if [ "$OS" = mac ]; then mac_pybin || MISS+=("Python 3.12 أو أحدث"); else command -v "$PYBIN" >/dev/null 2>&1 || MISS+=("Python"); fi
 fi
 }
 tools_check
@@ -73,7 +74,7 @@ fi
 
 PKG_VER="$("$NODE" -e 'process.stdout.write(require(process.argv[1]).version)' "$PKG_DIR/manifest.json")"
 CUR_VER=""; installed && CUR_VER="$("$NODE" -e 'try{process.stdout.write(require(process.argv[1]).version)}catch{}' "$APP/manifest.json")"
-py_ok(){ [ -x "$PY" ] && "$PY" -c "import dpdfnet, nara_wpe, soundfile, numpy, cv2, PIL" 2>/dev/null; }
+py_ok(){ if [ "$OS" = mac ]; then studio_py_ready "$PKG_DIR/studio/voice/requirements.txt"; else [ -x "$PY" ] && "$PY" -c "import dpdfnet, nara_wpe, soundfile, numpy, cv2, PIL" 2>/dev/null; fi; }
 # ويندوز: مصنف الاصوات (YAMNet من قوقل، Apache-2.0، نسخة ONNX) يعطي التشريح وفحص القصات اسماء الموثرات والموسيقى،
 # ويشتغل على بايثون الاستوديو (studio/tools/hear.py). الماك عنده مصنفه. اختياري: لو ما نزل يكمل الاستوديو بدونه
 YAM="${MOHRER_HOME:-$DATA/home}/models/yamnet"
@@ -96,6 +97,8 @@ stt_py(){
 }
 FETCH="$PKG_DIR/studio/tools/np/model_fetch.py"
 model_ok(){ local t; t="$(stt_py)" || return 1; "$t" "$FETCH" --has </dev/null >/dev/null 2>&1; }
+# ويندوز: أدوات الصوت جاهزة بس على بايثون 3.12 او احدث وبالنسخ المثبّتة (مراجعة Astra لـfix-reports، البند 3؛ win_py_ready)
+[ "$OS" = win ] && py_ok(){ win_py_ready "$PKG_DIR/studio/voice/requirements.txt"; }
 
 if [ $INSTALL -eq 0 ]; then
   TODO=()
@@ -140,13 +143,13 @@ fi
 # الاستوديو يصدّر أو يبني أو المونتير يشتغل أو يجهّز مقطع؟ التحديث ما يوقف شغل أبد (مراجعة 1.0.19، I4): ينتظره
 # STUDIO_BUSY_WAIT ثانية (60)، ولو ظل مشغول يوقف التحديث نفسه بسطر يقول ليش (خروج 12)، والقديم يكمّل شغله. السؤال من start.mjs
 # حق النسخة الجديدة: المثبّت ممكن أقدم من 1.0.23 وما يعرف --busy (ويشغّل استوديو بداله)
-BUSY="$("$NODE" "$NEW/studio/start.mjs" --busy --wait "${STUDIO_BUSY_WAIT:-60}" 2>/dev/null)"
-if [ $? -eq 4 ]; then
+# [audit Astra 1.0.23, item 3] الإيقاف نفسه يتأكد من الشغل، وأي فشل يوقف التحديث.
+BUSY="$("$NODE" "$NEW/studio/start.mjs" --stop --wait "${STUDIO_BUSY_WAIT:-60}" 2>/dev/null)"
+if [ $? -ne 0 ]; then
   printf '%s\n' "$BUSY" | sed -n '2,$p'
   echo "ما وقّفت شي: الاستوديو القديم يكمّل شغله. قل «حدّث الاستوديو» بعد ما يخلص."
   chmod -R u+w "$NEW"; rm -rf "$NEW"; exit 12
 fi
-if installed; then "$NODE" "$APP/studio/start.mjs" --stop --force >/dev/null 2>&1; fi
 # التبديل: ويندوز ما يغير اسم مجلد فيه ملف مفتوح او طرفية واقفة داخله، والسيرفر ممكن ياخذ لحظة يطلع.
 # نعيد المحاولة، ولو ظل نوقف برسالة بدل ما تنحط الجديدة داخل القديمة ونقول ✅
 if [ "$OS" != win ]; then
@@ -177,16 +180,33 @@ fi
 chmod -R a-w "$APP"
 "$NODE" "$APP/studio/start.mjs" --init >/dev/null || { echo "تعذّر تجهيز مجلد البيانات $DATA"; exit 1; }
 echo "✅ الاستوديو مثبّت (النسخة $PKG_VER) في $(showpath "$APP")"
+# ويندوز: أدوات الصوت ببايثون 3.12 او احدث (بلاغ #5: venv من بايثون اقدم وpip يقول «dpdfnet==0.6.0 غير موجودة»). ما فيه: سطر
+# يقول وش الناقص وكيف يجي، وتكمل باقي الخطوات. venv قديم (اقدم من 3.12) ينشال على جنب وينبني من جديد، ويرجع لو ما اكتمل الجديد
+PY_AWAY=""
+if [ "$OS" = win ] && [ $WITH_PY -eq 1 ] && ! py_ok; then
+  win_voice_python
+  if [ -z "$VPY" ]; then
+    echo "⚠️  أدوات تنظيف الصوت ومشاهد الرسم تحتاج Python 3.12 أو أحدث${VPY_OLD:+، واللي على الجهاز $VPY_OLD}. ثبّته بـ: winget install -e --id Python.Python.3.12 ثم أعد التثبيت. الاستوديو يعمل بدونها."
+    WITH_PY=0
+  else
+    PYBIN="$VPY"
+    if [ -x "$PY" ] && ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; then
+      PY_AWAY="$DATA/py.old-$(date +%Y%m%d%H%M%S)"; mv "$DATA/py" "$PY_AWAY" || PY_AWAY=""
+    fi
+  fi
+fi
 
 # ── 2) بايثون الاستوديو (تنظيف الصوت ومشاهد الرسم). نموذج تنظيف الضجيج نفسه داخل الحزمة، فما ينزل شي غير المكتبات
 if [ $WITH_PY -eq 1 ] && ! py_ok; then
   echo "⏬ أدوات تنظيف الصوت ومشاهد الرسم (~550 ميقا)…"
-  if { [ -x "$PY" ] || "$PYBIN" -m venv "$(wp "$DATA/py")"; } && "$PY" -m pip install --quiet --disable-pip-version-check -r "$APP/studio/voice/requirements.txt"; then
+  if studio_py "$APP/studio/voice/requirements.txt"; then
     echo "✅ أدوات الصوت جاهزة"
   else
     echo "⚠️  ما اكتملت أدوات الصوت: الاستوديو يعمل، وتنظيف الصوت ومشاهد الرسم ما تشتغل لين نعيد المحاولة."
   fi
 fi
+# ويندوز: الـvenv القديم اللي انشال على جنب (ما اكتملت فيه الأدوات): يروح لو الجديد اكتمل، ويرجع مكانه لو ما اكتمل
+if [ -n "$PY_AWAY" ]; then if py_ok; then rm -rf "$PY_AWAY"; else rm -rf "$DATA/py"; mv "$PY_AWAY" "$DATA/py"; fi; fi
 if [ "$OS" = win ] && [ $WITH_PY -eq 1 ] && ! yam_ok; then
   echo "⏬ مصنف الاصوات (~15 ميقا)…"
   if yam_get yamnet_class_map.csv cdf24d193e196d9e95912a2667051ae203e92a2ba09449218ccb40ef787c6df2 \

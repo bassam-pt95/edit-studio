@@ -33,7 +33,10 @@ jobs:
           xcode-select -p || true; df -h / | tail -1
           ls -d /opt/homebrew /usr/local/Homebrew 2>/dev/null || true
           echo "T0=$(date +%s)" >> "$GITHUB_ENV"
-      - name: a Mac with no Homebrew, Node, Python of its own or ffmpeg — the image's moved away, then checked on a new Terminal's PATH
+      - name: a Mac with no Homebrew, Node or ffmpeg, and only an old Python (python.org's 3.11, kept on purpose) — the image's others moved away, then checked on a new Terminal's PATH
+        # python.org's 3.11 stays ON PURPOSE (run 41613618088 of 1.0.23 found it): a follower whose newest Python is an old one from
+        # python.org. numpy 2.5 and dpdfnet 0.6.0 need 3.12, so setup must not build from it but get Homebrew's. Its 3.12, 3.13 and
+        # 3.14 are moved away; if the image has no 3.11 any more, this case is not covered and the step says so and fails
         run: |
           for d in /opt/homebrew /usr/local/Homebrew /usr/local/Cellar /usr/local/Caskroom; do
             if [ -e "$d" ]; then sudo mv "$d" "$d.image-off"; echo "moved $d"; fi
@@ -50,6 +53,11 @@ jobs:
           done
           [ -z "$left" ] || { echo "still on this machine:$left"; exit 1; }
           echo "/usr/bin/python3 (Apple's, through the command line tools the image keeps): $(env -i PATH="$UPATH" /usr/bin/python3 -V 2>&1 || true)"
+          old="$(env -i PATH="$UPATH" /bin/bash -c 'command -v python3.11 && python3.11 -V' 2>&1)" || { echo "no python3.11 on this image: the «only an old Python» case is NOT covered (put python.org's 3.11 here)"; exit 1; }
+          echo "kept on purpose: $old"
+          for t in python3 python3.12 python3.13 python3.14; do
+            if env -i PATH="$UPATH" /bin/bash -c "command -v $t >/dev/null && $t -c 'import sys; sys.exit(sys.version_info < (3, 12))'" 2>/dev/null; then echo "a Python 3.12 or newer is still here ($t): not the case this job checks"; exit 1; fi
+          done
           echo "UPATH=$UPATH" >> "$GITHUB_ENV"
       - name: a new macOS user — its own home, Desktop and Documents; the package where it can read it
         run: |
@@ -83,7 +91,8 @@ jobs:
           [ $rc -eq 11 ] || { echo "the check ends $rc, not 11 (montage tools missing)"; exit 1; }
           grep 'ناقص من أدوات المونتاج' "$RUNNER_TEMP/check.txt" > "$RUNNER_TEMP/missing.txt" || { echo "no «ناقص من أدوات المونتاج» line"; exit 1; }
           for t in 'Node' 'ffmpeg'; do grep -q "$t" "$RUNNER_TEMP/missing.txt" || { echo "the check does not say «$t» is missing"; exit 1; }; done
-          grep -q 'Python' "$RUNNER_TEMP/missing.txt" && echo "Python named too" || echo "Python not named: /usr/bin/python3 answers here (a new Mac would ask for the command line tools)"
+          # only python.org's 3.11 and Apple's 3.9 here: the studio needs 3.12 or newer, so Python is named, with its version
+          grep -q 'Python 3.12 أو أحدث' "$RUNNER_TEMP/missing.txt" || { echo "the check does not say «Python 3.12 أو أحدث» is missing (3.11 counted as enough)"; exit 1; }
       - name: setup install with no Homebrew — the person is told to paste Homebrew's line, nothing else is installed
         run: |
           set +e
@@ -120,6 +129,10 @@ jobs:
           as-bstudio 'command -v node ffmpeg || echo "(a new Terminal PATH has no Homebrew until brew shellenv is added: the studio puts /opt/homebrew/bin first itself)"'
           as-bstudio '~/Documents/video-edit/tools/py/bin/python -c "import sys, mlx_whisper, numpy; print(sys.prefix)"'
           as-bstudio 'cat ~/Documents/video-edit/tools/py/pyvenv.cfg'
+          # both venvs from Homebrew's 3.12 or newer, never from the 3.11 kept here: the montage one and the studio's sound tools
+          as-bstudio '~/Documents/video-edit/tools/py/bin/python -c "import sys; print(sys.version.split()[0]); sys.exit(sys.version_info < (3, 12))"' || { echo "the montage venv is older than 3.12"; exit 1; }
+          as-bstudio 'grep -q "^home = /opt/homebrew" ~/Documents/video-edit/tools/py/pyvenv.cfg' || { echo "the montage venv is not from Homebrew's Python"; exit 1; }
+          as-bstudio '~/Documents/video-edit/studio/py/bin/python -c "import sys, dpdfnet, numpy; print(sys.version.split()[0], numpy.__version__); sys.exit(sys.version_info < (3, 12))"' || { echo "the studio's sound tools are not in a 3.12+ venv"; exit 1; }
       - name: does this VM have a Metal GPU for mlx-whisper (the Mac's transcriber)?
         id: metal
         run: |
@@ -191,6 +204,7 @@ jobs:
             echo "- Homebrew: ${T_BREW:-?} s · setup.sh --install: ${T_SETUP:-?} s · whole job so far: $(( $(date +%s) - ${T0:-$(date +%s)} )) s"
             if [ "${T_WORDS:-}" = done ]; then echo "- Arabic sentences from a new clip: covered"
             else echo "- Arabic sentences from a new clip: NOT covered (no Metal GPU on this runner, or an earlier step failed)"; fi
+            echo "- only an old Python before Homebrew (python.org's 3.11, kept on purpose): both venvs must be 3.12+ from Homebrew (see «its tools are Homebrew's now»)"
             echo "- not a new Mac: Xcode and its command line tools stayed, sudo had no password, Chrome stayed"
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"

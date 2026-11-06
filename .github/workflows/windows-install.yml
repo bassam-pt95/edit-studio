@@ -59,6 +59,30 @@ jobs:
           "$PY" "$D/app/studio/voice/denoise.py" noisy.wav clean.wav --models "$D/app/studio/voice/dpdfnet"
           "$PY" "$D/app/studio/voice/dereverb.py" noisy.wav wpe.wav
           "$PY" -c "import soundfile as sf; a=sf.info('noisy.wav'); b=sf.info('clean.wav'); print(a.frames, b.frames, b.channels, b.subtype); assert a.frames == b.frames and b.channels == 2"
+      - name: the voice tools when an older Python comes first (GitHub #5, 1.0.24) — Python 3.10 first on the PATH, no montage venv to fall back on, the studio's voice venv on 3.11 with packages that import (Astra on fix-reports, item 3: import-only readiness kept it); setup.sh --install builds it again from 3.12 and DPDFNet loads, never pip's «dpdfnet==0.6.0 not found»
+        # the follower's machine: dpdfnet 0.6.0 is one wheel for Python >= 3.11 (numpy 2.5.4 needs 3.12) and the venv came from
+        # the first python found. The montage venv (3.12 here) is put aside for the step, or it would be taken and hide the case
+        run: |
+          D="$HOME/Documents/video-edit/studio"; M="$HOME/Documents/video-edit/tools/py"
+          OLD="$(ls -d /c/hostedtoolcache/windows/Python/3.10.*/x64 2>/dev/null | tail -1)"
+          V311="$(ls -d /c/hostedtoolcache/windows/Python/3.11.*/x64 2>/dev/null | tail -1)"
+          echo "older pythons: $OLD | $V311"; [ -x "$OLD/python.exe" ] && [ -x "$V311/python.exe" ]
+          mv "$D/py" "$D/py.good"; mv "$M" "$M.aside"
+          "$V311/python.exe" -m venv "$(cygpath -w "$D/py")"
+          # its packages import (older ones would): the readiness that only imported kept this venv and never rebuilt it
+          for m in dpdfnet nara_wpe soundfile numpy cv2 PIL; do mkdir -p "$D/py/Lib/site-packages/$m"; : > "$D/py/Lib/site-packages/$m/__init__.py"; done
+          "$D/py/Scripts/python.exe" -c "import platform, dpdfnet, nara_wpe, soundfile, numpy, cv2, PIL; print('voice venv before:', platform.python_version(), '(its packages import)')"
+          set +e
+          PATH="$OLD:$OLD/Scripts:$PATH" bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install --no-montage --no-app > setup5.txt 2>&1; rc=$?
+          set -e
+          mv "$M.aside" "$M"
+          cat setup5.txt; echo "setup exit $rc"
+          if grep -q "dpdfnet==0.6.0" setup5.txt; then echo "FAILED: pip's «dpdfnet not found» again"; exit 1; fi
+          "$D/py/Scripts/python.exe" -c "import sys, platform, dpdfnet; print('voice venv after:', platform.python_version()); assert sys.version_info >= (3, 12)"
+          "$D/py/Scripts/python.exe" "$D/app/studio/voice/denoise.py" --version --models "$D/app/studio/voice/dpdfnet"
+          if ls -d "$D"/py.old-* >/dev/null 2>&1; then echo "FAILED: the old venv was left behind"; exit 1; fi
+          rm -rf "$D/py.good"
+          [ $rc -eq 0 ]
       - name: the face tool the montage skill installed on Windows (mediapipe 0.10.21), from its own Python — its detector loads and runs on a frame
         # (audit 1.0.19, P6) it used to pip-install mediapipe into the runner's Python and import it there, which passed even when
         # the skill's install had left it out; now nothing is installed here, and the studio's «face» below reads the same venv
@@ -123,6 +147,70 @@ jobs:
           st, pr = call('x/' + urllib.parse.quote(folder) + '/api/project')
           assert st == 200 and pr['project']['spine'], pr
           print('opened', len(pr['project']['spine']), 'clip(s)')
+          PY
+      - name: footage with no sound goes into «مقطع جديد» (1.0.24) — a drone file alone opens as a picture-only clip (silence of its length, no words, transcription refused), and beside a camera clip only it gets the silence
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          ffmpeg -nostdin -v error -y -f lavfi -i testsrc2=size=640x360:rate=30:duration=4 -an -c:v libx264 -pix_fmt yuv420p "$HOME/drone-silent.mp4"
+          ffmpeg -nostdin -v error -y -f lavfi -i testsrc2=size=640x360:rate=30:duration=3 -f lavfi -i "sine=f=220:d=3" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/cam-tone.mp4"
+          DRONE="$(cygpath -w "$HOME/drone-silent.mp4")" CAM="$(cygpath -w "$HOME/cam-tone.mp4")" URL="$URL" PYTHONIOENCODING=utf-8 python - <<'PY'
+          import json, os, time, wave, urllib.error, urllib.parse, urllib.request
+          url, drone, cam = os.environ['URL'], os.environ['DRONE'], os.environ['CAM']
+          def call(path, body=None):
+              req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode('utf-8'),
+                                           headers={'content-type': 'application/json'}, method='GET' if body is None else 'POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read().decode('utf-8') or 'null')
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read().decode('utf-8') or 'null')
+          st, info = call('api/info')
+          root = info['root']
+          def ready(folder):
+              for _ in range(180):
+                  st, lst = call('api/projects')
+                  e = next((p for p in lst.get('projects', []) if p.get('folder') == folder), None)
+                  if e and e.get('status') != 'preparing' and e.get('phase') != 'running':
+                      return
+                  time.sleep(1)
+              raise SystemExit('the new clip never got ready: ' + json.dumps(e, ensure_ascii=False))
+          def pcm(folder, rel, dur):
+              with wave.open(os.path.join(root, folder, *rel.split('/')), 'rb') as w:
+                  assert (w.getframerate(), w.getnchannels(), w.getsampwidth()) == (48000, 2, 3), (w.getframerate(), w.getnchannels(), w.getsampwidth())
+                  n = w.getnframes()
+                  assert abs(n / 48000 - dur) < 0.1, f'{n / 48000} s of sound for a {dur} s file'
+                  return w.readframes(n)
+          # 1. the drone alone, the montage mode: a picture-only clip
+          st, j = call('api/raw/start', {'path': drone, 'name': 'درون بلا صوت', 'mode': 'full', 'face': 'none'})
+          print('start', st, json.dumps(j, ensure_ascii=False))
+          assert st == 202 and j.get('folder'), 'a video with no sound is no longer refused'
+          f1 = j['folder']; ready(f1)
+          st, pr = call('x/' + urllib.parse.quote(f1) + '/api/project')
+          p = pr['project']
+          assert len(p['spine']) == 1 and p['spine'][0]['in'] == 0, p['spine']
+          assert p['meta'].get('noSpeech') == ['a_src'], p['meta']
+          a = p['assets']['a_src']
+          assert a['audio'].get('silence') is True, a['audio']
+          assert not any(pcm(f1, a['audio']['pcm'], 4)), 'every sample of the silence is 0'
+          st, cut = call('x/' + urllib.parse.quote(f1) + '/api/cut')
+          assert cut.get('state') == 'picture', cut
+          st, tr = call('x/' + urllib.parse.quote(f1) + '/api/cut/transcribe', {})
+          assert st == 409 and tr.get('error') == 'picture', (st, tr)
+          print('picture-only:', p['spine'][0]['dur'], 'frames, silence checked, transcription refused')
+          # 2. a camera clip with its sound, then the drone: only the drone gets the silence
+          st, j = call('api/raw/start', {'path': cam, 'paths': [cam, drone], 'name': 'عرس ودرون', 'mode': 'manual', 'face': 'none'})
+          assert st == 202, (st, j)
+          f2 = j['folder']; ready(f2)
+          st, pr = call('x/' + urllib.parse.quote(f2) + '/api/project')
+          p = pr['project']
+          assert [c['asset'] for c in p['spine']] == ['a_src', 'a_src2'], p['spine']
+          assert p['meta'].get('noSpeech') == ['a_src2'], p['meta']
+          assert not p['assets']['a_src']['audio'].get('silence') and any(pcm(f2, p['assets']['a_src']['audio']['pcm'], 3)), 'the camera keeps its own sound'
+          assert p['assets']['a_src2']['audio'].get('silence') is True and not any(pcm(f2, p['assets']['a_src2']['audio']['pcm'], 4))
+          st, cut = call('x/' + urllib.parse.quote(f2) + '/api/cut')
+          assert cut.get('state') != 'picture', cut
+          print('several files: the drone alone got silence of its length; the camera its own sound')
           PY
       - name: the file window in front, and a press after it never stuck (1.0.17) — a follower had «نافذة اختيار الملف مفتوحة» and no window
         run: |
@@ -1707,6 +1795,12 @@ jobs:
               if (!(await press(T.exp))) return fail(`no «${T.exp}» button`);
               await page.waitForFunction(() => document.querySelector('#ex-name') && document.querySelector('#ex-name').value.length > 0, { timeout: 20000 });
               const name = await page.$eval('#ex-name', (e) => e.value);
+              // 1.0.24: no draft on Windows (draft: null): the two choices and no line about a draft under them (followers
+              // read «المسودة السريعة غير متاحة على هذا الجهاز» as a third choice gone missing)
+              await page.waitForSelector('.ex-kind', { timeout: 10000 });
+              const sheet = await page.evaluate(() => { const w = window.__mohrer.t('ex.err.noDraft'); const l = [...document.querySelectorAll('.ex-hint')].find((e) => e.textContent === w); return { kinds: [...document.querySelectorAll('.ex-kind [data-value]')].map((e) => e.dataset.value), line: !!l && !l.hidden && l.offsetParent !== null }; });
+              console.log('the sheet:', JSON.stringify(sheet));
+              if (sheet.line) return fail('«المسودة السريعة غير متاحة» shows under the choices on a machine with no draft');
               t0 = Date.now();
               if (!(await press(T.go))) return fail(`no «${T.go}» in the export sheet`);
               const title = () => page.evaluate(() => (document.querySelector('.ex-dialog .dialog-title, .dialog-title') || {}).textContent || '');
@@ -1727,12 +1821,16 @@ jobs:
               if (asked !== 'beforeunload' || page.isClosed()) return fail('closing during the export did not ask');
               const line = await until(() => page.evaluate(() => [...document.querySelectorAll('.toast')].map((e) => e.textContent).find((x) => /التصدير/.test(x)) || ''), 10000, 'the line naming the export');
               console.log('the line:', line);
+              // GitHub #4 (1.0.24): the encode check's own numbers, every run. A picture it refuses now fails the export
+              // (run 41628747869 ended «صُدِّر الفيديو، لكن فحص الجودة وجد فرقاً: جودة ترميز الصورة» and passed): these say where
+              const rows = () => { try { const r = path.join(dir, 'render'); const v = fs.readdirSync(r).map((n) => path.join(r, n, 'verify.json')).filter((f) => fs.existsSync(f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0]; if (!v) return console.log('verify.json: none'); const j = JSON.parse(fs.readFileSync(v, 'utf8')); const e = (j.checks || []).find((c) => c.name === 'encode'); console.log('verify:', j.ok ? 'ok' : `failed ${j.failed}`, '| encode rows [frame, psnr, raw, aligned]:', JSON.stringify(((e && e.detail) || []).map((q) => [q.n, q.psnr, q.raw, q.aligned]))); } catch (err) { console.log('verify.json:', String(err && err.message || err)); } };
               await until(async () => {
                 const w = await page.evaluate(() => [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent));
-                if ((await title()) !== T.done && w.length && !(await page.evaluate(() => { const r = document.querySelector('.ex-run'); return !!r && !r.hidden; }))) throw new Error('the export stopped: ' + w.join(' | '));
+                if ((await title()) !== T.done && w.length && !(await page.evaluate(() => { const r = document.querySelector('.ex-run'); return !!r && !r.hidden; }))) { rows(); throw new Error('the export stopped: ' + w.join(' | ')); }
                 return (await title()) === T.done;
               }, 1800000, 'the export');
               console.log(`exported in ${secs(t0)} s; the sheet says:`, await page.evaluate(() => [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent).join(' | ') || '(nothing to warn)'));
+              rows();
               if (errors.length) console.log('page errors:', errors.join(' | '));
 
               // 7 the file
@@ -1772,7 +1870,116 @@ jobs:
             } catch (e) { await fail(e && e.stack || e); }
           })();
           JS
-          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$(cygpath -w "$HOME/ramp35.mp4")" NAME='تصدير ويندوز كامل' MCP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/studio-mcp.mjs")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/export_check.cjs")"
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$(cygpath -w "$HOME/ramp35.mp4")" NAME='تصدير ويندوز كامل' MCP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/studio-mcp.mjs")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/export_check.cjs")" || { { grep '^\[export\] ' "$HOME/Documents/video-edit/studio/server.log" || true; } | tail -n 5; taskkill //F //IM chrome.exe >/dev/null 2>&1; exit 1; }
+          # 1.0.24 (the Windows report of a slow export): how this export went, as the studio's log says it every 30 s
+          # (frames, the time a frame takes and where, the parts, the sources and their decode, memory, the page's GPU)
+          { grep '^\[export\] ' "$HOME/Documents/video-edit/studio/server.log" || true; } | tail -n 5
+          grep -q '^\[export\] تصدير ويندوز كامل' "$HOME/Documents/video-edit/studio/server.log" || { echo "FAILED: no [export] line in the log during a 7-minute export"; exit 1; }
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+      - name: a picture the encode check refuses fails the export (GitHub #4, 1.0.24) — noise frames sent to a real export job end it as failed with its reason, no file takes the export's name, verify.json stays to look into; and raw alone (fine red and blue columns) saves the file with the done sheet's line saying what and where
+        # the follower's export (an M4 Max) failed the encode check and was saved and called done all the same; the checks
+        # now read the mux's .part, and a refused picture ends the job (server/export.mjs finish)
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          cat > "$HOME/encfail.cjs" <<'JS'
+          const fs = require('node:fs'), path = require('node:path');
+          const url = process.env.URL.replace(/\/+$/, '');
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const call = async (p, body) => { const r = await fetch(url + p, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+          const fail = (why) => { console.error('FAILED:', why); process.exit(1); };
+          (async () => {
+            const st = await call('/api/raw/start', { path: process.env.VIDEO, name: 'فحص الترميز', mode: 'manual', face: 'none' });
+            if (st.status !== 202 || !st.body.folder) return fail('the clip did not start: ' + JSON.stringify(st));
+            const folder = st.body.folder, x = `/x/${encodeURIComponent(folder)}`;
+            for (let i = 0; ; i++) {
+              const e = ((await call('/api/projects')).body.projects || []).find((p) => p.folder === folder);
+              if (e && e.status !== 'preparing' && e.phase !== 'running') break;
+              if (i > 600) return fail('the clip never got ready');
+              await sleep(500);
+            }
+            const dir = path.join((await call('/api/info')).body.root, folder);
+            const job = await call(`${x}/api/export`, { name: 'نمط مشوه', range: [0, 12] });
+            if (job.status !== 200 || !job.body.jobId) return fail('no export job: ' + JSON.stringify(job));
+            const id = job.body.jobId, info = (await call(`${x}/api/export/${id}`)).body;
+            // noise: 4:2:0 and crf 14 cannot keep it, as the follower's stripes could not be kept
+            let s = 0x2545f491;
+            for (let f = 0; f < 12; f++) {
+              const b = Buffer.alloc(info.W * info.H * 4);
+              for (let i = 0; i < b.length; i += 4) { for (let c = 0; c < 3; c++) { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; b[i + c] = s & 255; } b[i + 3] = 255; }
+              const r = await fetch(`${url}${x}/api/export/${id}/frame?n=${f}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: b });
+              if (r.status !== 200) return fail(`frame ${f}: ${r.status} ${await r.text()}`);
+            }
+            const done = await call(`${x}/api/export/${id}/done`, {});
+            console.log('done:', done.status, JSON.stringify(done.body));
+            const stat = (await call(`${x}/api/export/${id}/status`)).body;
+            console.log('the job:', stat.state, '|', stat.error);
+            const out = path.join(dir, 'out'), left = fs.existsSync(out) ? fs.readdirSync(out) : [];
+            console.log('out/:', left.join(' | ') || '(empty)');
+            const vf = path.join(dir, 'render', id, 'verify.json');
+            const v = fs.existsSync(vf) ? JSON.parse(fs.readFileSync(vf, 'utf8')) : null;
+            console.log('verify.json:', v ? `ok ${v.ok}, failed ${v.failed}` : 'missing');
+            if (done.status !== 500 || done.body.error !== 'ex.err.encodeCheck' || !(done.body.vars && done.body.vars.tc)) return fail('the export did not say it failed, or not why');
+            if (stat.state !== 'failed' || stat.result) return fail('the job is not failed');
+            if (left.includes('نمط مشوه.mp4') || left.some((n) => n.endsWith('.part'))) return fail('a file was left under the export\'s name, or its part');
+            if (!v || v.ok !== false || v.failed !== 'encode') return fail('verify.json is not kept with the encode check failed');
+            const again = await call(`${x}/api/export`, { name: 'نمط مشوه', range: [0, 2] });
+            if (again.status !== 200) return fail('the name is still taken: ' + JSON.stringify(again));
+            await call(`${x}/api/export/${again.body.jobId}/cancel`, {});
+            // his decision (2026-11-05): raw alone under its floor (4:2:0's loss on fine coloured detail) saves the file, and the
+            // done sheet's line says what and where (ex.warn.encodeRaw), never the old vague «وجد فرقاً: جودة ترميز الصورة»
+            const rj = await call(`${x}/api/export`, { name: 'ألوان دقيقة', range: [0, 12] });
+            if (rj.status !== 200 || !rj.body.jobId) return fail('no export job: ' + JSON.stringify(rj));
+            const cols = Buffer.alloc(info.W * info.H * 4);
+            for (let i = 0, px = 0; i < cols.length; i += 4, px = (px + 1) % info.W) { if (px % 2) cols[i + 2] = 255; else cols[i] = 255; cols[i + 3] = 255; }
+            for (let f = 0; f < 12; f++) {
+              const r = await fetch(`${url}${x}/api/export/${rj.body.jobId}/frame?n=${f}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: cols });
+              if (r.status !== 200) return fail(`frame ${f}: ${r.status} ${await r.text()}`);
+            }
+            const rd = await call(`${x}/api/export/${rj.body.jobId}/done`, {});
+            const rw = (rd.body.warnings || []).find((q) => q.key === 'ex.warn.encodeRaw');
+            console.log('raw alone:', rd.status, JSON.stringify(rd.body.warnings), '| out/:', fs.readdirSync(out).join(' | '));
+            if (rd.status !== 200 || !rw || !rw.vars.tc || !fs.existsSync(path.join(out, 'ألوان دقيقة.mp4'))) return fail('raw alone did not save the file with its line');
+            if ((rd.body.warnings || []).some((q) => q.key === 'ex.verifyFailed')) return fail('the old vague line came back');
+            console.log('PASSED');
+          })().catch((e) => fail(e && e.stack || e));
+          JS
+          URL="$URL" VIDEO="$(cygpath -w "$HOME/ramp35.mp4")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/encfail.cjs")"
+      - name: a sideways wheel pans the timeline in Windows' Chrome (GitHub #3, 1.0.24) — fine steps under a pixel (a Logitech MX Master's side wheel, a precision touchpad) add up at 100 % scaling, and a sideways wheel over the track names and the overview strip pans too
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          cat > "$HOME/hwheel.cjs" <<'JS'
+          const pptr = require(process.env.PP);
+          (async () => {
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
+            try {
+              const page = await b.newPage();
+              await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+              // (studio.sh status gives the address with its «/»: «//?p=» was a 404, found by .release/mac-check.sh on 2026-11-05)
+              await page.goto(`${process.env.URL.replace(/\/+$/, '')}/?p=${encodeURIComponent(process.env.FOLDER)}&test=1`, { waitUntil: 'domcontentloaded' });
+              await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+              await page.evaluate(() => window.__mohrer.timeline.zoomAround(0, 12));
+              await page.waitForFunction(() => { const s = document.querySelector('.tl-scroll'); return s && s.scrollWidth > s.clientWidth + 400; }, { timeout: 20000 });
+              const wheel = (sel, n, dx, dy = 0) => page.evaluate(async (sel, n, dx, dy) => {
+                const sc = document.querySelector('.tl-scroll'), el = document.querySelector(sel), r = el.getBoundingClientRect();
+                sc.scrollLeft = 300; const x0 = sc.scrollLeft;
+                for (let i = 0; i < n; i++) el.dispatchEvent(new WheelEvent('wheel', { deltaX: dx, deltaY: dy, deltaMode: 0, clientX: r.left + r.width / 2, clientY: r.top + Math.min(r.height / 2, 20), bubbles: true, cancelable: true }));
+                await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+                return sc.scrollLeft - x0;
+              }, sel, n, dx, dy);
+              const fine = await wheel('.tl-scroll', 50, 0.4), heads = await wheel('.tl-heads', 4, 30), nav = await wheel('.tl-nav', 4, 30);
+              console.log('panned (px): 50 steps of 0.4 →', fine, '| over the track names', heads, '| over the overview strip', nav);
+              if (Math.abs(fine - 20) > 1.5) return fail('fine steps did not add up');
+              if (heads < 100 || nav < 100) return fail('a sideways wheel outside the lanes did not pan');
+              await b.close();
+              console.log('PASSED');
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" FOLDER='تصدير ويندوز كامل' node "$(cygpath -w "$HOME/hwheel.cjs")"
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
       - name: the window raise takes any clip name (audit 1.0.19, S6) — «Ali’s vlog» is found by its title, and a name made to end PowerShell's quote runs nothing through the studio (it does in the form used before 1.0.22)
         run: |

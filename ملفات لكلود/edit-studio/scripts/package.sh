@@ -78,10 +78,17 @@ if [ -n "$TARGET" ]; then
 fi
 # --list: بالاسم، الأحدث أول، بلا ما يفك ولا يركّب شي
 N=0
+# [audit Astra 1.0.23, item 11] نجمع ملفات المجلدين قبل ترتيبها بالأحدث.
+CANDIDATES=()
 for d in "${DIRS[@]}"; do
-  while IFS= read -r f; do
-    [ -d "$f" ] || [[ "$f" == *.zip ]] || continue   # الدليل (دليل B Studio.pdf) على سطح المكتب مو حزمة
-    printf '%s\t%s\n' "$(out "$f")" "$(date -r "$f" '+%Y-%m-%d %H:%M' 2>/dev/null)"; N=$((N + 1))
-  done < <(ls -td "$d"/*"B Studio"* "$d"/*"استوديو المونتاج"* 2>/dev/null)   # the old name: a download made before 1.0.3
+  for f in "$d"/*"B Studio"* "$d"/*"استوديو المونتاج"*; do
+    [ -d "$f" ] || { [ -f "$f" ] && [[ "$f" == *.zip ]]; } || continue
+    CANDIDATES+=("$f")
+  done
 done
+if [ ${#CANDIDATES[@]} -gt 0 ]; then
+  while IFS= read -r f; do
+    printf '%s\t%s\n' "$(out "$f")" "$(date -r "$f" '+%Y-%m-%d %H:%M' 2>/dev/null)"; N=$((N + 1))
+  done < <(ls -td "${CANDIDATES[@]}" 2>/dev/null)
+fi
 [ $N -gt 0 ] || { echo none; exit 14; }

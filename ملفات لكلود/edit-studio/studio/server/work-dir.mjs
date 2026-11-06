@@ -1,0 +1,1 @@
+import r from"node:fs";import e from"node:path";function f(o,i){r.mkdirSync(o,{recursive:!0});const s=r.realpathSync(o),t=e.join(s,i);try{r.mkdirSync(t)}catch(n){if(n.code!=="EEXIST")throw n}const c=r.lstatSync(t);if(c.isSymbolicLink()||!c.isDirectory()||r.realpathSync(t)!==t)throw new Error("unsafe work directory");return e.join(o,i)}export{f as workDir};

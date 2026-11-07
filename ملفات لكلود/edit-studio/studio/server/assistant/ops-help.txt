@@ -1,14 +1,14 @@
-appendSpine: {asset, in?, dur?}: append at the end of the storyline.
+appendSpine: {asset, in?, dur?, data?}: append at the end of the storyline (data: as insertSpine).
 blade: {f, ids?: string[] | 'all'}. No ids: split the spine clip with start < f < end. Ids: split those clips/items at f. 'all': the spine clip and every attached item under f (caption words never split). Spine split: connected items whose timeline start ≥ f move to 
 capPauses: [add] {ranges:[{a, b}], key}: «تقصير الوقفات». Cut these stretches (timeline frames, b exclusive) out of the main storyline in one step, the same way cutWords does. The ranges and `key` come from model/pauses.js findPauses: the audio is read outside the op. Ch
 cutWords: [add] {ids}: cut the stretch of the main storyline under the given words (word ids or keys), every range in one step. Blade at both ends of each range (§8.1 blade, connected items starting inside move to the middle piece), then ripple remove of the middle piec
-insertSpine: {asset, f, in?, dur?}: split at f when inside a clip, then insert a new clip there. sel = the new clip.
+insertSpine: {asset, f, in?, dur?, data?}: split at f when inside a clip, then insert a new clip there. sel = the new clip. data: the record of a video the project does not have yet (as add_media brings it in, like replaceAsset takes it).
 joinSpine: [join] {a, b}: a through cut goes away: a takes b's length, b leaves, what hung on b hangs on a (anchors are source time, so nothing moves), a transition on the cut after b now follows a. Anything else returns the same project.
 moveSpine: {id, toIndex}: reorder (toIndex = position in the resulting list); connected items follow.
 remove: {ids}: spine clips ripple out with their connected items (toast toast.deletedWithAbove {n}); attached items go; word ids/keys leave the captions only; 'watermark' hides the watermark (on:false). One step for a mixed selection. [add] §32.6 a detached voice is n
 removeWithWords: [delete-asks] {ids}: remove these storyline clips and the words and sentences of the footage they leave unused.
 resetBounds: {id}: in and dur back to `orig`.
-reverseClip: [reverse] {id, asset, data}: the storyline clip plays backwards: it shows `asset` (the studio's reversed copy of the footage it showed, POST /api/speed/reverse; `data` is its record) from its start, with the same length, speed and colour; what was on it stays 
+reverseClip: [reverse] {id}: a clip of the main video plays backwards, same length, speed and colour (from a chat give the id alone: the studio makes the reversed copy first, a long clip takes a minute); the same call on a reversed clip plays it forwards. The page gives {i
 rollSpine: [roll] {a, b, delta}: move the cut between spine neighbours a and b by `delta` whole frames, clamped by rollRoom: a's end and b's start move together, so nothing after the cut moves and the total length stays. Built from the two ripple trims (a's end, then b's
 setSpeed: [speed] {ids, speed} or {ids, seconds}: slow motion or faster: each main video clip plays its footage at `speed` (0.25 to 4; 1 = normal), or at the speed that makes it last `seconds` on the timeline (FilmCraft's Speed/Duration: «make it 3 seconds»), keeping th
 setSpineTf: {ids, tf:{s?, x?, y?}, per?:{id: tf}}: punch-in of the main video (absolute values; missing keys keep theirs; `per` gives a clip its own values, e.g. «وسّط الوجه», in one history step).
@@ -44,10 +44,10 @@ groupItems: {ids}: one clip from several (Final Cut's compound clip): the attach
 linkSounds: {pairs:[{sound, scene}]}: link each sound to the scene it belongs to, so it moves, trims at its start and is deleted with the scene. A sound already linked is re-linked; pairs whose sound is not a sound or whose scene is not a picture, block or graphic are ski
 moveItems: {ids, dFrames, dRow?}: groups expand; locked items refuse to move in time (err.pinned). The whole set moves by the same delta, clamped so every item stays inside [0, total − 1]. dRow changes the row inside the band.
 nudge: {ids, d}: attached → moveItems; words → moveWords by d frames; spine → err.nudgeMain. Coalesce at the caller (600 ms).
-replaceAsset: {id, asset, data?}: another file for the same clip; timing and transform stay.
+replaceAsset: {id, asset, data?}: another file for the same clip; timing and transform stay. A clip of the main video too (§82.5): its in, length (shorter when the new footage is), transform, speed and colour stay; refused with its reason when its voice is detached (replace
 setBehind: {ids, on}: the picture, drawn graphic or title stands behind the person (between the room and him: the studio cuts him out with his matte, his colour stays the clip's) or in front again. Pictures, drawn blocks and added videos only.
-setProjectAudio: [add] {patch} with keys 'voice.locked', 'voice.gain', 'sounds.gain' (dB) — the project audio tab (§18.3). Locking resets the voice gain and every spine clip gain to 0 (§18.2); voice gain is refused while locked.
-setProps: {ids, patch}: dotted paths, e.g. {'audio.gain': -6, 'tf.o': 0.8, fit, label, extend, 'enter.kind': 'fade', strength}. Each path is applied to every item that supports it (spine: label, audio.gain while the voice is unlocked). fit:'fill' on a `self` asset is re
+setProjectAudio: [add] {patch} with keys 'voice.locked', 'voice.gain', 'sounds.gain' (dB, −30…+6: outside it nothing changes and it says the limit) — the project audio tab (§18.3). Locking resets the voice gain and every spine clip gain to 0 (§18.2); voice gain is refused whil
+setProps: {ids, patch}: dotted paths, e.g. {'audio.gain': -6, 'audio.mute': true, 'tf.o': 0.8, fit, label, extend, 'enter.kind': 'fade', strength}. Each path is applied to every item that supports it (spine: label, audio.mute, audio.gain while the voice is unlocked). au
 setSelf: {assetId, self}: a photo of the creator is always shown whole (fit contain on its items).
 setVoiceFx: [add] §30 the voice sound control: {patch} with any of preset, clean, tone, level, amount (a preset choice sends all five). Allowed while the voice is locked (the lock governs levels only). A result that is «as is» (clean off, tone flat, level off) removes aud
 trimItems: {ids, edge:'L'|'R', delta} simple trim (no ripple). L: positive delta shortens from the start (start moves right); R: positive delta lengthens. Bounds: dur ≥ 2 (images) / ≥ 1; media room from the layout (roomL/roomR). Extra result field [add] `limit: {edge, ke
@@ -84,7 +84,7 @@ removeLut: removeLut({id}): refused while a clip uses it (warn col.err.inUse wit
 renameLut: renameLut({id, name}).
 resetStep: Reset one panel step ('balance' | 'look' | 'adjust') or every step ('all') of the targets.
 setGrade: setGrade({gradeId} | {clipIds} | {assetId}, patch) → OpResult - gradeId: that grade only. - clipIds: the field(s) are written into each selected clip's effective grade in one step (created when missing). - assetId: every grade used by clips of that source (cam
-setSourceInput: setSourceInput({assetId, input}) («عادي | مسطّح Log»). Graphic sources (input 'none') are never changed here.
+setSourceInput: setSourceInput({assetId, input}) («عادي | مسطّح Log»). Graphic sources (input 'none') are never changed here. It answers the studio's question «هذا التصوير Log؟» too (asset.logAsk, SPEC-v2 §82.9): either answer, the same input included, ends it.
 addMoveFx: {f, kind, clip?, d?, …}: an effect on his footage from timeline frame f for d s. kind and its values: shake amp rot decay; flash color decay; flicker pattern (0 dark 1 as is 2 bright); leak color from gain; rgb amount decay; spot strength size close open; whip
 addMoveKey: {f, clip?, z?, x?, y?, r?, ease?, c? | face? | faceAt?}: a move key at timeline frame f (zoom z ≥ 1 around his face, x/y frame px, r degrees). Missing values = what the picture shows there now; a key already there is changed.
 addOpening: {at, name?, strength?, clip?}: an opening at frame at (zoomIn, zoomOut, shakeOut, flashIn, flicker, whip, leak, spin, rgbSplit; omit name to auto-pick an unused one). strength soft|medium|strong; omitted: strong in the first 3 s, else medium. One of each per v

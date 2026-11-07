@@ -20,7 +20,10 @@ if [ -z "$URL" ]; then
     # ما يوقفه، ومجلد البيانات ما ينمسك كمجلد شغل (server.log يظل مفتوح، فالنقل بعد studio.sh stop)
     "$NODE" -e "const{spawn}=require('child_process'),fs=require('fs'),os=require('os');const o=fs.openSync(process.argv[2],'a');spawn(process.execPath,[process.argv[1],...process.argv.slice(3)],{detached:true,windowsHide:true,cwd:os.homedir(),stdio:['ignore',o,o]}).unref()" "$APP/studio/start.mjs" "$DATA/server.log" ${STUDIO_PORT:+--port "$STUDIO_PORT"} >/dev/null 2>&1 </dev/null
   else
-    ( cd "$DATA" && nohup "$NODE" "$APP/studio/start.mjs" ${STUDIO_PORT:+--port "$STUDIO_PORT"} >> "$DATA/server.log" 2>&1 & ) >/dev/null 2>&1 </dev/null
+    # الماك: نفس طريقة ويندوز، node يشغّل السيرفر منفصل (مجموعة وجلسة لحاله، فقفل الطرفية ما يوقفه) ومخرجه بـserver.log،
+    # ومجلد شغله مجلد البيانات زي قبل. كان بـnohup، وnohup حق أبل برا جلسة المستخدم (sudo أو launchd) ما يقدر ينفصل وما
+    # يشغّل شي: فحص الماك النظيف لـ1.0.25 (سطر «can't detach from console» بس، والاستوديو ما اشتغل)
+    ( cd "$DATA" && "$NODE" -e "const{spawn}=require('child_process'),fs=require('fs');const o=fs.openSync(process.argv[2],'a');spawn(process.execPath,[process.argv[1],...process.argv.slice(3)],{detached:true,stdio:['ignore',o,o]}).unref()" "$APP/studio/start.mjs" "$DATA/server.log" ${STUDIO_PORT:+--port "$STUDIO_PORT"} ) >/dev/null 2>&1 </dev/null
   fi
   for _ in $(seq 1 60); do
     URL="$("$NODE" "$APP/studio/start.mjs" --url 2>/dev/null)"

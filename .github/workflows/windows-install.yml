@@ -32,6 +32,93 @@ jobs:
       - name: ffmpeg
         shell: pwsh
         run: choco install ffmpeg -y --no-progress
+      - name: engine measurement m7 (1.0.26) — CPU decode of wedding-camera kinds of footage, the camera file against today's conf.mkv, and rule ب frame by frame with this ffmpeg (info)
+        timeout-minutes: 25
+        run: |
+          set +e
+          mkdir -p "$HOME/m7"
+          cat > "$HOME/m7-reader.mjs" <<'JS'
+          // m7 (the same script runs on the Windows runner and, for calibration, on the Mac): the export reader's decode cost per
+          // exported frame on the CPU only (no VideoToolbox, as on Windows), the camera file (new path, rule ب) against today's
+          // conf.mkv; framemd5: the conf decodes to the fps filter's frames, and the fps filter's frame m is source frame k(m).
+          // usage: node m7-reader.mjs <workdir> [ffmpeg]   (makes its clips in <workdir>, deletes them at the end)
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import os from 'node:os';
+          import { spawn, spawnSync } from 'node:child_process';
+          const [work, FF = 'ffmpeg'] = process.argv.slice(2);
+          fs.mkdirSync(work, { recursive: true });
+          const win = process.platform === 'win32';
+          const ver = spawnSync(FF, ['-version'], { encoding: 'utf8' }).stdout.split('\n')[0];
+          console.log(`M7 machine: ${process.platform} ${os.cpus().length} cores (${os.cpus()[0]?.model}), ${Math.round(os.totalmem() / 2 ** 30)} GB, ${ver}`);
+          const ff = (args) => { const t = performance.now(); const r = spawnSync(FF, ['-nostdin', '-hide_banner', '-v', 'error', '-y', ...args], { encoding: 'utf8', maxBuffer: 1 << 30 });
+            if (r.status !== 0) throw new Error(r.stderr.slice(-600)); return performance.now() - t; };
+          // the export reader's arguments (export.mjs readerArgs, 1.0.24, no hardware decode): every decoded frame once, RGB to the pipe
+          const GAIN = "lutrgb=r='min(65535\\,floor(val*1.0038601167225771+0.5))':g='min(65535\\,floor(val*1.0038601167225771+0.5))':b='min(65535\\,floor(val*1.0038601167225771+0.5))'";
+          const readerArgs = (file, deep) => ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '4', '-i', file, '-map', '0:v:0', '-an', '-sn', '-dn', '-vf',
+            'scale=in_color_matrix=bt709:in_range=tv:flags=accurate_rnd+full_chroma_int+full_chroma_inp,' + (deep ? 'format=rgb48le,' + GAIN : 'format=rgba'),
+            '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1'];
+          function readAll(file, w, h, deep) {
+            return new Promise((res, rej) => {
+              const bytes = w * h * (deep ? 6 : 4); const t = performance.now(); let got = 0, first = null;
+              const p = spawn(FF, readerArgs(file, deep), { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }); let err = '';
+              p.stdout.on('data', (c) => { got += c.length; if (first === null && got >= bytes) first = performance.now() - t; });
+              p.stderr.on('data', (d) => { err += d; });
+              p.on('close', (code) => code === 0 ? res({ ms: performance.now() - t, frames: Math.floor(got / bytes), firstMs: first }) : rej(new Error(err.slice(-600))));
+            });
+          }
+          const md5s = (file) => fs.readFileSync(file, 'utf8').split('\n').filter((l) => l && !l.startsWith('#')).map((l) => l.split(',').pop().trim());
+          const kOf = (S, P, m) => Math.ceil((S[0] * P[1] * (2 * m + 1)) / (2 * S[1] * P[0]) - 1e-9) - 1;
+          const CASES = [
+            // three wedding-camera kinds of footage, made here: 6 s each, at such cameras' bitrates; the temporal noise is set (measured on the Mac,
+            // 6 Nov) so the lossless conf of each weighs per frame what real files of those cameras do (3.9, 1.25 and 2.7 MB), and every frame differs
+            { name: '4K 59.94 HEVC 10-bit (Pocket 4K60) -> 29.97', w: 3840, h: 2160, S: [60000, 1001], P: [30000, 1001], pix: 'yuv420p10le', prof: 'main10', kbps: 95000, noise: 8, deep: true },
+            { name: '1080 47.95 HEVC 10-bit (Pocket 1080p48) -> 29.97', w: 1920, h: 1080, S: [48000, 1001], P: [30000, 1001], pix: 'yuv420p10le', prof: 'main10', kbps: 36000, noise: 6, deep: true },
+            { name: '4K 29.97 HEVC 8-bit (drone) -> 30', w: 3840, h: 2160, S: [30000, 1001], P: [30, 1], pix: 'yuv420p', prof: 'main', kbps: 94000, noise: 6, deep: false },
+          ];
+          const rows = [];
+          for (const c of CASES) {
+            const src = path.join(work, 'src.mp4'), conf = path.join(work, 'src.conf.mkv');
+            const encMs = ff(['-f', 'lavfi', '-i', `testsrc2=size=${c.w}x${c.h}:rate=${c.S[0]}/${c.S[1]}:duration=6`, '-vf', `noise=alls=${c.noise}:allf=t,format=${c.pix}`,
+              '-c:v', 'libx265', '-preset', 'ultrafast', '-profile:v', c.prof, '-x265-params', `bitrate=${c.kbps}:vbv-maxrate=${c.kbps}:vbv-bufsize=${c.kbps}:keyint=30:min-keyint=30:bframes=0:log-level=error`,
+              '-tag:v', 'hvc1', src]);
+            // today's import of this file: conformTo exactly (Windows: ultrafast; the Mac: medium)
+            const confMs = ff(['-i', src, '-map', '0:v:0', '-an', '-vf', `setpts=PTS-STARTPTS,fps=${c.P[0]}/${c.P[1]}`, '-c:v', 'libx264', '-qp', '0',
+              '-preset', win ? 'ultrafast' : 'medium', '-pix_fmt', c.pix, '-f', 'matroska', conf]);
+            const runs = [];
+            for (let i = 0; i < 2; i++) {
+              const a = await readAll(conf, c.w, c.h, c.deep), b = await readAll(src, c.w, c.h, c.deep);
+              runs.push({ confMsPerExported: +(a.ms / a.frames).toFixed(1), sourceMsPerExported: +(b.ms / a.frames).toFixed(1), confFrames: a.frames, sourceFrames: b.frames });
+            }
+            // frames: the conf's decode = the fps filter (lossless), and the filter's frame m = source frame k(m) (rule ب)
+            const fa = path.join(work, 'a.md5'), fb = path.join(work, 'b.md5'), fc = path.join(work, 'c.md5');
+            ff(['-i', src, '-map', '0:v:0', '-vf', `format=${c.pix}`, '-fps_mode', 'passthrough', '-f', 'framemd5', fa]);
+            ff(['-i', src, '-map', '0:v:0', '-vf', `setpts=PTS-STARTPTS,fps=${c.P[0]}/${c.P[1]},format=${c.pix}`, '-fps_mode', 'passthrough', '-f', 'framemd5', fb]);
+            ff(['-i', conf, '-map', '0:v:0', '-vf', `format=${c.pix}`, '-fps_mode', 'passthrough', '-f', 'framemd5', fc]);
+            const s = md5s(fa), f = md5s(fb), cd = md5s(fc);
+            let rule = 0, lossless = 0; for (let m = 0; m < f.length; m++) { if (f[m] === s[Math.min(kOf(c.S, c.P, m), s.length - 1)]) rule++; if (cd[m] === f[m]) lossless++; }
+            const best = (k) => Math.min(...runs.map((r) => r[k]));
+            const ratio = +(best('sourceMsPerExported') / best('confMsPerExported')).toFixed(2);
+            const row = { case: c.name, sourceMB: +(fs.statSync(src).size / 2 ** 20).toFixed(1), confMB: +(fs.statSync(conf).size / 2 ** 20).toFixed(1), confMBPerFrame: +(fs.statSync(conf).size / 2 ** 20 / runs[0].confFrames).toFixed(2),
+              encodeS: +(encMs / 1000).toFixed(1), conformS: +(confMs / 1000).toFixed(1), runs, ratio, uniqueSource: new Set(s).size, sourceFrames: s.length,
+              ruleFrames: `${rule}/${f.length}`, losslessFrames: `${lossless}/${f.length}` };
+            rows.push(row);
+            console.log('M7 case', JSON.stringify(row));
+            for (const x of [src, conf, fa, fb, fc]) fs.rmSync(x, { force: true });
+          }
+          const worst = Math.max(...rows.map((r) => r.ratio));
+          // Mac calibration (6 Nov, CPU only): on real files of those cameras the same ratio was up to 1.6x the made clips' (4K60 0.76 vs 0.58,
+          // 1080p48 0.73 vs 0.45, drone 0.68 vs 0.63), so the decision reads the worst ratio times 1.6
+          const est = +(worst * 1.6).toFixed(2);
+          console.log(`M7 RESULT: source/conf decode per exported frame, worst ${worst}x on the made clips, about ${est}x for real footage ` +
+            `(${rows.map((r) => `${r.case.split(' (')[0]}: ${r.ratio}x`).join('; ')}). ` +
+            `Rule frames ${rows.map((r) => r.ruleFrames).join(', ')}; lossless ${rows.map((r) => r.losslessFrames).join(', ')}. ` +
+            (est > 1.5 ? 'Over 1.5x: by answer 3, Windows keeps copying (conf) on CPU-only machines.' : 'Within 1.5x: the new path holds on Windows.'));
+          fs.rmSync(work, { recursive: true, force: true });
+          JS
+          node "$HOME/m7-reader.mjs" "$(cygpath -w "$HOME/m7")" ffmpeg; echo "m7 exit $?"
+          rm -f "$HOME/m7-reader.mjs"
+          exit 0
       - name: install the two skills
         run: bash "ملفات لكلود/install.sh"
       - name: setup check (before) (info)
@@ -403,6 +490,198 @@ jobs:
           })();
           JS
           PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" FOLDER='تجربة ويندوز' PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/close_check.cjs")"
+      - name: undo kept after a reload on Windows (1.0.26) — 200 steps and two chat edits, the history file held by another program while he works, the page reloaded, Ctrl+Z until nothing is left gives project.json back byte for byte; started while it is held, nothing is dropped and the old steps join the new ones
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          echo "browser: $B"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          mkdir -p "$HOME/undo-state"
+          cat > "$HOME/undo_check.cjs" <<'JS'
+          // undo kept after a reload on this machine (B Studio §85, plan A5): the studio as installed, the clip FOLDER, in Chrome
+          // (puppeteer-core). node undo_check.cjs steps | held-open
+          //   steps: 200 steps of his (a grade on a clip, three kinds), a chat's edit at the same moment as his (merged) and one after
+          //     his save, the history file held by another program with no sharing while he makes 10 more (Windows: the project still
+          //     saves, the history answers «busy», nothing is lost, it goes through once free, no tmp is left, and the studio never
+          //     holds the file itself), the page reloaded, Ctrl+Z until nothing is left: project.json byte for byte; then redo all
+          //   held-open: the studio was started while another program holds the history file: the page opens with nothing dropped,
+          //     he makes 2 steps, the file is freed, his old steps join his new ones; reloaded, Ctrl+Z until nothing is left: byte for byte
+          const fs = require('fs'), path = require('path'), crypto = require('crypto');
+          const { spawn, spawnSync } = require('child_process');
+          const pptr = require(process.env.PP);
+          const url = process.env.URL.replace(/\/$/, ''), folder = process.env.FOLDER, mode = process.argv[2], stateDir = process.env.STATE_DIR;
+          const win = process.platform === 'win32';
+          const MOD = win ? 'Control' : 'Meta';
+          const api = (p) => `${url}/x/${encodeURIComponent(folder)}${p}`;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const sha = (b) => crypto.createHash('sha256').update(b).digest('hex').slice(0, 16);
+          const med = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : NaN; };
+          const ps = (cmd) => spawnSync('powershell', ['-NoProfile', '-Command', cmd], { encoding: 'utf8' });
+          const q = (p) => p.replace(/'/g, "''");
+          (async () => {
+            const info = await (await fetch(`${url}/api/info`)).json();
+            const dir = path.join(info.root, folder);
+            const file = path.join(dir, 'project.json'), undo = path.join(dir, '.mohrer', 'undo.json');
+            const stateFile = path.join(stateDir, 'undo_state.json'), b0File = path.join(stateDir, 'undo_b0.json');
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
+            try {
+              const page = await b.newPage();
+              await page.setViewport({ width: 1280, height: 760 });
+              const errors = [];
+              page.on('pageerror', (e) => errors.push(e.message));
+              const puts = [];
+              page.on('response', (r) => { try { if (r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/api/undo')) puts.push(r.status()); } catch { /* closed */ } });
+              const hook = (fn, ...a) => page.evaluate(`(${fn})(window.__mohrer, ...${JSON.stringify(a)})`);
+              const open = async () => {
+                await page.goto(`${url}/?p=${encodeURIComponent(folder)}&test=1`, { waitUntil: 'domcontentloaded' });
+                await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 90000 });
+                await hook(() => { performance.setResourceTimingBufferSize(20000); performance.clearResourceTimings(); });
+              };
+              const projSaved = () => hook(async (m) => { await m.ctx.sync.flush(); return m.ctx.sync.status; });
+              const saved = () => hook(async (m) => { await m.ctx.sync.flush(); await m.ctx.undoKeep.flush(); return m.ctx.sync.status; });
+              const count = () => hook((m) => m.ctx.store.historyDump().steps.length);
+              const step = (i) => hook(async (m, i) => {
+                const { setGrade } = await import('/js/ops/color.js');
+                const clips = m.ctx.store.state.p.spine;
+                const key = ['exposure', 'contrast', 'saturation'][i % 3];
+                m.ctx.ctl.apply(setGrade, { clipIds: [clips[i % clips.length].id], patch: { [key]: key === 'exposure' ? ((i % 37) + 1) / 100 : (i % 37) + 1 } });   // exposure in hundredths, the others whole
+                return m.ctx.store.historyDump().steps.length;
+              }, i);
+              const undoAll = async () => {
+                await page.mouse.click(640, 740);
+                let n = 0;
+                while (await hook((m) => m.ctx.store.canUndo())) { await page.keyboard.down(MOD); await page.keyboard.press('KeyZ'); await page.keyboard.up(MOD); if (++n > 400) break; }
+                return n;
+              };
+              const dropped = () => page.evaluate(() => [...document.querySelectorAll('.toast-text')].map((e) => e.textContent).join(' | '));
+
+              if (mode === 'steps') {
+                await open();
+                // the project as the studio writes it, before his steps
+                await hook(async (m) => { const { setGrade } = await import('/js/ops/color.js'); m.ctx.ctl.apply(setGrade, { clipIds: [m.ctx.store.state.p.spine[0].id], patch: { exposure: 0.5 } }); });
+                if (await saved() !== 'saved') return fail('not saved');
+                await hook((m) => { m.ctx.store.undo(); });
+                if (await saved() !== 'saved') return fail('not saved');
+                const b0 = fs.readFileSync(file);
+                const pageMs = [];
+                let total = 0;
+                for (let i = 0; i < 200; i++) {
+                  const n = await step(i);
+                  total++;
+                  if (n !== total) return fail(`step ${i} made no step (${n} ≠ ${total})`);
+                  if (i === 99 || i === 149) {
+                    if (i === 149 && await saved() !== 'saved') return fail('not saved');
+                    const name = `من المحادثة ${i}`;
+                    const g = await (await fetch(api('/api/project'))).json();
+                    const r = await fetch(api('/api/project'), { method: 'PUT', headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ baseRev: g.rev, clientId: 'chat', label: 'op.chat', project: { ...g.project, name } }) });
+                    if (r.status !== 200) return fail(`the chat's edit: ${r.status}`);
+                    for (let k = 0; k < 200 && !(await hook((m, n) => m.ctx.store.state.p.name === n, name)); k++) await sleep(50);
+                    total++;
+                    const label = await hook((m) => m.ctx.store.undoLabel());
+                    if (label !== (i === 99 ? 'op.merge' : 'op.chat')) return fail(`the chat's edit is not one step (${label})`);
+                  }
+                  if (i % 10 === 9) { if (await saved() !== 'saved') return fail('not saved'); pageMs.push(await hook((m) => m.ctx.undoKeep.stats.lastMs)); }
+                }
+                if (await saved() !== 'saved') return fail('not saved');
+                const rt = await hook(() => performance.getEntriesByType('resource').filter((e) => /\/api\/undo$/.test(new URL(e.name).pathname) && e.initiatorType === 'fetch').map((e) => e.duration));
+                console.log(`200 steps and 2 chat edits: undo.json ${fs.statSync(undo).size} bytes; history saves ${rt.length}: round trip median ${med(rt).toFixed(1)} ms, worst ${Math.max(...rt).toFixed(1)} ms; the page's part: worst ${Math.max(...pageMs).toFixed(2)} ms`);
+                if (med(rt) > 20) return fail(`saving the history takes ${med(rt)} ms (median)`);
+
+                if (win) {
+                  // another program holds the history file with no sharing (an antivirus, a sync tool) while he makes 10 more steps
+                  const held = path.join(stateDir, 'held1');
+                  fs.rmSync(held, { force: true });
+                  const hold = spawn('powershell', ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${q(undo)}', 'Open', 'ReadWrite', 'None'); New-Item -ItemType File '${q(held)}' | Out-Null; Start-Sleep -Seconds 20; $f.Close()`], { stdio: 'inherit' });
+                  const gone = new Promise((r) => hold.on('exit', r));
+                  for (let k = 0; k < 300 && !fs.existsSync(held); k++) await sleep(100);
+                  if (!fs.existsSync(held)) return fail('the file was never held');
+                  const from = puts.length;
+                  for (let i = 0; i < 10; i++) {
+                    if (await step(300 + i) !== ++total) return fail('a step while it was held made no step');
+                    if (await projSaved() !== 'saved') return fail('the project did not save while the history file was held');
+                    await hook((m) => m.ctx.undoKeep.flush());
+                  }
+                  const during = puts.slice(from);
+                  console.log('while held, the history answered', JSON.stringify(during));
+                  if (!during.includes(503)) return fail('no «busy» while the file was held');
+                  if (during.includes(200)) return fail('a history save went through while the file was held');
+                  await gone;
+                  for (let k = 0; k < 400 && !puts.slice(from).includes(200); k++) await sleep(100);
+                  if (!puts.slice(from).includes(200)) return fail('the history never went through after the file was freed');
+                  const f = JSON.parse(fs.readFileSync(undo, 'utf8'));
+                  if (f.steps.length !== total || f.cursor !== total) return fail(`the file holds ${f.steps.length} steps (cursor ${f.cursor}), not ${total}`);
+                  const tmp = fs.readdirSync(path.dirname(undo)).filter((x) => x.endsWith('.tmp'));
+                  if (tmp.length) return fail(`tmp files left: ${tmp}`);
+                  const own = ps(`$f = [System.IO.File]::Open('${q(undo)}', 'Open', 'ReadWrite', 'None'); $f.Close()`);
+                  if (own.status !== 0) return fail(`the studio holds the history file itself: ${own.stderr}`);
+                  console.log('held 20 s: the project saved every time, the history said busy, went through once free with every step; no tmp; the studio holds no handle on it');
+                } else console.log('(not Windows: the FileShare None hold is Windows\' own)');
+
+                await page.reload({ waitUntil: 'domcontentloaded' });
+                await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 90000 });
+                const back = await hook((m) => { const { steps, cursor } = m.ctx.store.historyDump(); return { n: steps.length, cursor, chat: steps.filter((s) => s.label === 'op.chat').length, merge: steps.filter((s) => s.label === 'op.merge').length }; });
+                console.log('after the reload:', JSON.stringify(back));
+                if (back.n !== total || back.cursor !== total || back.chat !== 1 || back.merge !== 1) return fail(`not every step came back (${total} made)`);
+                const presses = await undoAll();
+                if (await saved() !== 'saved') return fail('not saved');
+                const b1 = fs.readFileSync(file);
+                console.log(`Ctrl+Z ${presses} times: project.json ${sha(b1)} (${b1.length} B), before the steps ${sha(b0)} (${b0.length} B)`);
+                if (!b1.equals(b0)) return fail('project.json is not the file it was before the steps');
+                await hook((m) => { while (m.ctx.store.canRedo()) m.ctx.store.redo(); });
+                if (await saved() !== 'saved') return fail('not saved');
+                fs.writeFileSync(b0File, JSON.stringify({ b0: b0.toString('base64') }));
+                fs.writeFileSync(stateFile, JSON.stringify({ total, undo }));
+                fs.writeFileSync(path.join(stateDir, 'undo-path.txt'), undo);
+                if (errors.length) return fail(`page errors: ${errors.join(' | ')}`);
+              } else if (mode === 'held-open') {
+                const { total } = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+                const b0 = Buffer.from(JSON.parse(fs.readFileSync(b0File, 'utf8')).b0, 'base64');
+                await open();
+                if (await count() !== 0) return fail('the history came back while the file was held?');
+                await sleep(1500);
+                if (/سجل/.test(await dropped())) return fail(`a line said it was dropped: ${await dropped()}`);
+                for (let i = 0; i < 2; i++) { await step(400 + i); if (await projSaved() !== 'saved') return fail('not saved while held'); }
+                const released = path.join(stateDir, 'released2');
+                for (let k = 0; k < 900 && !fs.existsSync(released); k++) await sleep(100);
+                if (!fs.existsSync(released)) return fail('the file was never freed');
+                for (let k = 0; k < 300 && (await count()) !== total + 2; k++) await sleep(100);
+                if (await count() !== total + 2) return fail(`his old steps did not join his new ones (${await count()} ≠ ${total + 2})`);
+                if (await saved() !== 'saved') return fail('not saved');
+                await page.reload({ waitUntil: 'domcontentloaded' });
+                await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 90000 });
+                if (await count() !== total + 2) return fail('not every step came back after the reload');
+                const presses = await undoAll();
+                if (await saved() !== 'saved') return fail('not saved');
+                if (!fs.readFileSync(file).equals(b0)) return fail('project.json is not the file of before');
+                console.log(`started while held: nothing dropped, ${total} old steps joined his 2 new ones once free; Ctrl+Z ${presses} times after a reload: byte for byte`);
+              } else return fail(`mode? ${mode}`);
+              await b.close();
+              console.log('PASSED', mode);
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          export PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" FOLDER='تجربة ويندوز' STATE_DIR="$(cygpath -w "$HOME/undo-state")" PYTHONIOENCODING=utf-8
+          # this check's Chrome goes to its own node only: the studio started again below keeps the environment it had (1.0.26)
+          UNDO_CHROME="$(cygpath -w "$B")"
+          URL="$URL" CHROME="$UNDO_CHROME" node "$(cygpath -w "$HOME/undo_check.cjs")" steps
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          # 4: the studio starts while another program holds the history file
+          rm -f "$HOME/undo-state/held2" "$HOME/undo-state/released2"
+          UNDO="$(cat "$HOME/undo-state/undo-path.txt")"
+          powershell -NoProfile -Command "\$f = [System.IO.File]::Open('$UNDO', 'Open', 'ReadWrite', 'None'); New-Item -ItemType File '$(cygpath -w "$HOME/undo-state/held2")' | Out-Null; Start-Sleep -Seconds 45; \$f.Close(); New-Item -ItemType File '$(cygpath -w "$HOME/undo-state/released2")' | Out-Null" &
+          HOLD=$!
+          for i in $(seq 1 30); do [ -f "$HOME/undo-state/held2" ] && break; sleep 1; done
+          test -f "$HOME/undo-state/held2"
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          URL="$URL" CHROME="$UNDO_CHROME" node "$(cygpath -w "$HOME/undo_check.cjs")" held-open
+          wait $HOLD
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          taskkill //F //IM msedge.exe >/dev/null 2>&1 || true
       - name: the assistant's gate on Windows (1.0.20) — every way around it asks (PowerShell, cmd, Git Bash, real patterns, a junction to .ssh), the everyday work does not; a script cannot raise the level, the page's key can
         # audit 1.0.19 batch A: the studio as installed (its own permit.mjs) on this machine's real disk, and the running studio's routes
         run: |
@@ -488,6 +767,100 @@ jobs:
           console.log('PASSED');
           JS
           PERMIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/server/assistant/permit.mjs")" URL="$URL" FOLDER='تجربة ويندوز' PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/gate_check.mjs")"
+      - name: a risky command at «ask» asks, the everyday work does not (1.0.26) — the gate as installed, PowerShell and Git Bash with Windows paths; «اسمح دائماً» keeps no write or run
+        run: |
+          cat > "$HOME/gate26_check.mjs" <<'JS'
+          // the gate as installed: decisions on text only (nothing here is run), in a folder of this check's own
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+          const { decide, permitStore } = await import(pathToFileURL(process.env.PERMIT).href);
+          const T = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate26-')));
+          const me = path.join(T, 'me'), proj = path.join(T, 'proj'), work = path.join(T, 'work'), out = path.join(T, 'out'), home = path.join(T, 'studio-home');
+          for (const d of [path.join(me, '.ssh'), proj, work, out, home]) fs.mkdirSync(d, { recursive: true });
+          for (const f of [path.join(me, '.ssh', 'id_rsa'), path.join(proj, 'notes.txt'), path.join(proj, 'a.mp4')]) fs.writeFileSync(f, 'x');
+          const win = process.env.GATE_PLATFORM !== 'posix';
+          const ctx = { project: proj, home, studio: [], raw: [], cwd: proj, work, userHome: me, ...(win ? { platform: 'win32' } : {}) };
+          const fw = (p) => p.replace(/\\/g, '/');
+          const B = (command) => ['Bash', { command }], PS = (command) => ['PowerShell', { command }];
+          let bad = 0;
+          const say = (ok, what) => { console.log(ok ? '✓' : '✗', what); if (!ok) bad++; };
+          const show = (r) => JSON.stringify(r[1].command || r[1].file_path).slice(0, 100);
+          // a risky command at «ask» asks; at «studio» an old «always» list does not lift it
+          const RISKY = [B('curl https://example.com'), B(`cat ${fw(me)}/.ssh/id_rsa`), PS(`Get-Content ${path.join(me, '.ssh', 'id_rsa')}`),
+            ['Write', { file_path: path.join(out, 'x.txt') }]];
+          for (const r of RISKY) {
+            const a = decide('ask', ...r, ctx), s = decide('studio', ...r, ctx, ['secret', 'net', 'write-out']);
+            say(!a.allow && a.asking.length > 0 && !s.allow, `asks: ${show(r)} ${JSON.stringify(a.kinds)}`);
+          }
+          // a plain folder change passes at «ask»; the everyday work passes at «studio»
+          for (const r of [B(`cd ${fw(work)}`), PS(`Set-Location ${work}`)]) say(decide('ask', ...r, ctx).allow === true, `passes at «ask»: ${show(r)}`);
+          const EVERYDAY = [B(`cd ${fw(work)} && ls`), B(`ffmpeg -y -i ${fw(proj)}/a.mp4 ${fw(work)}/b.mp4`), B('git status'), B(`cat ${fw(proj)}/notes.txt`),
+            PS(`Get-ChildItem ${proj}`), PS(`Get-Content ${path.join(proj, 'notes.txt')}`), PS(`Set-Location ${work}; Get-ChildItem`), ['Write', { file_path: path.join(work, 'b.txt') }]];
+          for (const r of EVERYDAY) { const d = decide('studio', ...r, ctx); say(d.allow === true, `passes at «studio»: ${show(r)} ${JSON.stringify(d.kinds)}`); }
+          // the studio's own files: refused at every level
+          const sf = decide('all', 'Write', { file_path: path.join(home, 'assistant-permissions.json') }, ctx);
+          say(sf.refuse === 'studio-file', `the studio's own file is refused: ${sf.refuse}`);
+          // «اسمح دائماً»: a kept list loses what it may not keep, the file too
+          const sh = path.join(T, 'perm-home'); fs.mkdirSync(sh);
+          fs.writeFileSync(path.join(sh, 'assistant-permissions.json'), JSON.stringify({ level: 'ask', allow: ['edit', 'work', 'build', 'git-push', 'write-out', 'web'] }));
+          const kept = JSON.stringify(permitStore(sh).get().allow);
+          const file = JSON.stringify(JSON.parse(fs.readFileSync(path.join(sh, 'assistant-permissions.json'), 'utf8')).allow);
+          say(kept === '["web"]' && file === '["web"]', `«always» keeps: ${kept}, the file: ${file}`);
+          fs.rmSync(T, { recursive: true, force: true });
+          if (bad) { console.error(`FAILED: ${bad}`); process.exit(1); }
+          console.log('PASSED');
+          JS
+          PERMIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/server/assistant/permit.mjs")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/gate26_check.mjs")"
+      - name: a project's thumbnail is only a picture, and «أوقف» ends only what the studio started (1.0.26)
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          echo "studio: $URL"
+          cat > "$HOME/files26_check.mjs" <<'JS'
+          // the running studio: project folders of this check's own in its projects folder, removed at the end
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { spawn } from 'node:child_process';
+          const url = process.env.URL.replace(/\/+$/, '');
+          const info = await (await fetch(`${url}/api/info`)).json();
+          const root = info.root;
+          let bad = 0;
+          const say = (ok, what) => { console.log(ok ? '✓' : '✗', what); if (!ok) bad++; };
+          const project = (name, meta) => JSON.stringify({ format: 'mohrer-project', version: 2, name, fps: [30, 1], width: 1080, height: 1920, assets: {}, luts: {}, grades: {},
+            color: { display: null, sourceDefault: {} }, spine: [], attached: [], captions: { sentences: [], words: [] }, meta });
+          const page = path.join(root, 'check-thumb-page'), pic = path.join(root, 'check-thumb-pic'), stop = path.join(root, 'check-stop');
+          const other = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });   // a process of this check's own
+          try {
+            fs.mkdirSync(page, { recursive: true }); fs.mkdirSync(pic, { recursive: true }); fs.mkdirSync(path.join(stop, '.mohrer'), { recursive: true });
+            fs.writeFileSync(path.join(page, 'project.json'), project('check thumb page', { thumb: 'thumb.html' }));
+            fs.writeFileSync(path.join(page, 'thumb.html'), '<p>MARK</p>');
+            fs.writeFileSync(path.join(pic, 'project.json'), project('check thumb pic', { thumb: 'thumb.png' }));
+            fs.writeFileSync(path.join(pic, 'thumb.png'), Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4a00000000049454e44ae426082', 'hex'));
+            fs.writeFileSync(path.join(stop, 'project.json'), project('check stop', { status: 'preparing' }));
+            fs.writeFileSync(path.join(stop, '.mohrer', 'progress.json'), JSON.stringify({ pid: other.pid, step: 'speech', pct: 30, updatedAt: new Date().toISOString() }));
+            await new Promise((r) => setTimeout(r, 1500));
+            const a = await fetch(`${url}/api/projects/check-thumb-page/thumb`);
+            const ta = a.headers.get('content-type') || '', ba = await a.text();
+            say(!/html/i.test(ta) && !ba.includes('MARK'), `a thumbnail that is not a picture is not served: ${a.status} ${ta}`);
+            const b = await fetch(`${url}/api/projects/check-thumb-pic/thumb`);
+            await b.arrayBuffer();
+            say(b.status === 200 && b.headers.get('content-type') === 'image/png' && /sandbox/.test(b.headers.get('content-security-policy') || '') && b.headers.get('x-content-type-options') === 'nosniff',
+              `a picture is served with the headers of a file from outside: ${b.status} ${b.headers.get('content-type')} ${b.headers.get('content-security-policy')}`);
+            const s = await fetch(`${url}/api/projects/check-stop/stop`, { method: 'POST' });
+            await s.text();
+            await new Promise((r) => setTimeout(r, 1500));
+            let alive = true; try { process.kill(other.pid, 0); } catch { alive = false; }
+            say(s.status === 409 && alive, `«أوقف» leaves a process the studio did not start: ${s.status}, still running: ${alive}`);
+          } finally {
+            try { other.kill(); } catch { /* ended */ }
+            for (const d of [page, pic, stop]) fs.rmSync(d, { recursive: true, force: true });
+          }
+          if (bad) { console.error(`FAILED: ${bad}`); process.exit(1); }
+          console.log('PASSED');
+          JS
+          URL="$URL" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/files26_check.mjs")"
       - name: a project's paths stay in its folder, and the phone reads no private file in any spelling (1.0.21) — backslash and «:» ids refused and never saved, 8.3 names and data streams at the door, a real LAN link stopped and one closing itself
         # audit 1.0.19 batch B (S5 S10 S11 S12): the studio as installed and the running one, on this machine's NTFS
         run: |
@@ -1925,6 +2298,168 @@ jobs:
           { grep '^\[export\] ' "$HOME/Documents/video-edit/studio/server.log" || true; } | tail -n 5
           grep -q '^\[export\] تصدير ويندوز كامل' "$HOME/Documents/video-edit/studio/server.log" || { echo "FAILED: no [export] line in the log during a 7-minute export"; exit 1; }
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+      - name: the writing templates and the wedding look (1.0.26) — a script line in Latin and in Arabic and the names, each in its own face (not a stand-in), black and white on a shot, «تصدير» pressed; the words in the file in their seconds, as wide as drawn and in the middle
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          ffmpeg -nostdin -v error -y -f lavfi -i "color=c=0x303845:s=540x960:r=30:d=16,format=yuv420p" -f lavfi -i "sine=f=330:d=16" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/tpl16.mp4"
+          cat > "$HOME/templates_check.cjs" <<'JS'
+          // §84 on this machine: the ready templates drawn in their own faces, exported the way he exports.
+          // env: PP (puppeteer-core's folder), CHROME, URL (the running studio), VIDEO (the clip), NAME (its name), MCP (studio-mcp.mjs)
+          const pptr = require(process.env.PP);
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { spawn, spawnSync } = require('node:child_process');
+          const url = process.env.URL.replace(/\/+$/, '');
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const call = async (p, body) => { const r = await fetch(url + p, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+          async function until(fn, ms, what) { const t0 = Date.now(); for (;; await sleep(500)) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error(`${what}: not in ${Math.round(ms / 1000)} s`); } }
+          function tools(env) {
+            const c = spawn(process.execPath, [process.env.MCP], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+            let buf = '', id = 0, err = '';
+            const waiters = new Map();
+            c.stderr.on('data', (d) => { err += d; });
+            c.stdout.on('data', (d) => { buf += d; for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) { const line = buf.slice(0, i); buf = buf.slice(i + 1); let m = null; try { m = JSON.parse(line); } catch { continue; } const w = waiters.get(m.id); if (w) { waiters.delete(m.id); w(m); } } });
+            const rpc = (method, params) => new Promise((r) => { id += 1; waiters.set(id, r); c.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); });
+            return {
+              hello: () => rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'windows-check', version: '0' } }),
+              async call(name, args) { const r = await rpc('tools/call', { name, arguments: args }); const content = (r.result && r.result.content) || []; return { text: content.filter((x) => x.type === 'text').map((x) => x.text).join('\n'), isError: !!(r.result && r.result.isError), log: err.slice(-800) }; },
+              stop: () => c.kill(),
+            };
+          }
+          // the cream of the wedding look (#F7EEDD) in a frame of the file at t: its share and the columns it spans
+          function cream(file, t, W, H) {
+            const rgb = spawnSync('ffmpeg', ['-v', 'error', '-ss', t.toFixed(3), '-i', file, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 64 << 20 }).stdout;
+            if (!rgb || rgb.length < W * H * 3) throw new Error(`no frame at ${t} s`);
+            let n = 0, x0 = W, x1 = -1, sat = 0, m = 0;
+            for (let i = 0; i < W * H; i++) {
+              const r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2], x = i % W;
+              if (r > 205 && g > 195 && b > 175 && r - b < 45) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
+              if (((i / W) | 0) < H * 0.3) { sat += Math.max(r, g, b) - Math.min(r, g, b); m++; }
+            }
+            return { share: n / (W * H), x0, x1, sat: sat / m };
+          }
+          // the same cream in the drawing itself: frame n of the block file (its top half is the picture, cropped to box), in the
+          // video's own pixels → the columns the letters span (the box is wider: it holds their soft shadow too)
+          function drawnCream(file, n, box) {
+            const [bx, , bw, bh] = box;
+            const rgb = spawnSync('ffmpeg', ['-v', 'error', '-i', file, '-vf', `select=eq(n\\,${n}),crop=${bw}:${bh}:0:0`, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 64 << 20 }).stdout;
+            if (!rgb || rgb.length < bw * bh * 3) throw new Error(`no frame ${n} in ${file}`);
+            let x0 = bw, x1 = -1;
+            for (let i = 0; i < bw * bh; i++) { const r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2], x = i % bw; if (r > 205 && g > 195 && b > 175 && r - b < 45) { if (x < x0) x0 = x; if (x > x1) x1 = x; } }
+            return { x0: bx + x0, x1: bx + x1 };
+          }
+          (async () => {
+            const prof = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'tpl-chrome-'));
+            const own = process.env.CHROME_HOME ? { USERPROFILE: process.env.CHROME_HOME, HOME: process.env.CHROME_HOME } : {};
+            const b = await pptr.launch({ executablePath: process.env.CHROME, headless: true, userDataDir: prof, timeout: 120000, env: { ...process.env, ...own }, args: ['--no-first-run', '--no-default-browser-check', '--ignore-gpu-blocklist'] });
+            const fail = async (why) => { console.error('FAILED:', why); await b.close().catch(() => {}); process.exit(1); };
+            try {
+              const st = await call('/api/raw/start', { path: process.env.VIDEO, name: process.env.NAME, mode: 'manual', face: 'none' });
+              if (st.status !== 202 || !st.body.folder) return fail(`the clip did not start: ${st.status} ${JSON.stringify(st.body)}`);
+              const folder = st.body.folder, x = `/x/${encodeURIComponent(folder)}`;
+              await until(async () => { const l = (await call('/api/projects')).body; const e = (l.projects || []).find((p) => p.folder === folder); return e && e.status !== 'preparing' && e.phase !== 'running'; }, 300000, 'the clip ready');
+              const dir = path.join((await call('/api/info')).body.root, folder);
+              const page = await b.newPage();
+              try { await page._client().send('Network.disable'); } catch { /* another puppeteer */ }
+              await page.setViewport({ width: 1280, height: 800 });
+              await page.goto(`${url}/?p=${encodeURIComponent(folder)}&test=1`, { waitUntil: 'domcontentloaded' });
+              await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+              const hook = (fn, ...a) => page.evaluate(`(${fn})(window.__mohrer, ...${JSON.stringify(a)})`);
+              const project = async () => (await call(`${x}/api/project`)).body.project;
+              const mcp = tools({ STUDIO_DIR: dir, STUDIO_BASE: url + x, STUDIO_SOUNDS: '' });
+              await mcp.hello();
+              // two shots: the clip cut at 8 s (the first one goes black and white below, the second keeps its colour)
+              const cut = await mcp.call('apply', { operations: [{ name: 'blade', args: { f: 240 } }], summary: 'two shots' });
+              if (cut.isError || (await project()).spine.length !== 2) return fail(`the clip was not cut in two: ${cut.text}`);
+              const placed = {};
+              // 1 the templates, each in its own face
+              for (const [k, args] of [['latin', { template: 'quote-script', text: { quote: 'Forever begins tonight' }, at: 0.5 }], ['names', { template: 'names-script', text: { a: 'Omar', b: 'Layla', date: '01 . 01 . 2027' }, at: 5 }], ['arabic', { template: 'quote-script', text: { quote: 'وبدأت الحكاية' }, at: 10.5 }]]) {
+                const r = await mcp.call('title', args);
+                const item = (/item (x_\w+)/.exec(r.text) || [])[1];
+                console.log(`title ${k}:`, r.text.split('\n').filter((l) => !/^the video at/.test(l)).join(' | ').slice(0, 300));
+                if (r.isError || !item) return fail(`title ${k}: ${r.text} ${r.log}`);
+                placed[k] = item;
+              }
+              let p = await project();
+              const boxOf = (id) => { const it = p.attached.find((a) => a.id === id); return p.assets[it.asset].recipe.box; };
+              const u = Math.min(p.width, p.height) / 1080;
+              // the stand-in is the template itself, drawn by draw from its own code (the installed templates.js) with its faces
+              // renamed to names no machine has: the same words, shadow, motion and box, so the two differ only if the template's
+              // own face reached its drawing (drawn in a stand-in face, the template would come out the stand-in's size)
+              const { templateCode } = await import(require('node:url').pathToFileURL(path.join(path.dirname(process.env.MCP), '..', 'public', 'js', 'gfx', 'templates.js')).href);
+              for (const [k, words] of [['latin', 'Forever begins tonight'], ['arabic', 'وبدأت الحكاية']]) {
+                const own = templateCode(), wrapper = 'function draw(g, t, k) { paintTemplate(g, t, k); }';
+                if (!own.includes(wrapper) || !own.includes('"Great Vibes"') || !own.includes('"Aref Ruqaa"')) return fail('the installed template code is not the one this check knows');
+                const code = own.replace(/"Great Vibes"/g, '"NoSuchScriptFaceAnywhere"').replace(/"Aref Ruqaa"/g, '"NoSuchRuqaaFaceAnywhere"')
+                  .replace(wrapper, `function draw(g, t, k) { k.template = 'quote-script'; k.fields = ${JSON.stringify({ quote: words })}; paintTemplate(g, t, k); }`);
+                const r = await mcp.call('draw', { name: `stand-in ${k}`, at: 15, dur: 4, code });
+                const item = (/item (x_\w+)/.exec(r.text) || [])[1];
+                if (r.isError || !item) return fail(`the stand-in drawing ${k}: ${r.text}`);
+                p = await project();
+                const [, , ow, oh] = boxOf(placed[k]), [, , sw, sh] = boxOf(item);
+                console.log(`${k}: drawn ${ow}×${oh} px in its own face, ${sw}×${sh} px the same template in a face this machine does not have`);
+                if (!(Math.abs(ow - sw) / sw > 0.08 || Math.abs(oh - sh) / sh > 0.08)) return fail(`${k}: the template is the size of the stand-in: its own face did not reach the drawing`);
+                const gone = await mcp.call('apply', { operations: [{ name: 'remove', args: { ids: [item] } }], summary: 'the stand-in goes' });
+                if (gone.isError) return fail(`the stand-in did not go: ${gone.text}`);
+              }
+              // 2 black and white on the first shot
+              const first = p.spine[0].id;
+              const bw = await mcp.call('black_white', { from: 0, to: 0.2 });
+              console.log('black_white:', bw.text.slice(0, 200));
+              if (bw.isError) return fail(`black_white: ${bw.text}`);
+              mcp.stop();
+              p = await project();
+              const gid = p.spine[0].grade, g = (p.grades || {})[gid] || {};
+              console.log('the first shot\'s grade:', JSON.stringify(g));
+              if (!(g.saturation === -100 && g.contrast === 30 && g.blacks === -22)) return fail('the measured black and white is not on the first shot');
+              const ids = p.attached.map((a) => a.id);
+              await until(() => hook((m, want) => want.every((id) => m.store.state.p.attached.some((a) => a.id === id)), ids), 60000, 'the templates on the page');
+              // (NO_EXPORT: the Mac's run before the release, when exports wait: stops here)
+              if (process.env.NO_EXPORT === '1') { await b.close(); console.log('PASSED (no export)'); return; }
+              // 3 «تصدير», the way he presses it
+              await hook((m) => m.sync && m.sync.flush && m.sync.flush());
+              const L = await hook((m) => { const pp = m.store.state.p; return { total: m.store.state.L.total, fps: pp.fps[0] / pp.fps[1], at: Object.fromEntries(pp.attached.map((a) => [a.id, [m.store.state.L.index.get(a.id).start, m.store.state.L.index.get(a.id).end]])) }; });
+              const T = await hook((m) => ({ exp: m.t('hd.export'), go: m.t('ex.go'), done: m.t('ex.done'), review: m.t('pf.title'), anyway: m.t('pf.anyway') }));
+              const press = async (label) => { const el = (await page.evaluateHandle((s) => [...document.querySelectorAll('button')].find((e) => e.offsetParent !== null && e.textContent.trim() === s) || null, label)).asElement(); if (!el) return false; await el.click(); return true; };
+              if (!(await press(T.exp))) return fail(`no «${T.exp}» button`);
+              await page.waitForFunction(() => document.querySelector('#ex-name') && document.querySelector('#ex-name').value.length > 0, { timeout: 20000 });
+              const name = await page.$eval('#ex-name', (e) => e.value);
+              if (!(await press(T.go))) return fail(`no «${T.go}»`);
+              const title = () => page.evaluate(() => (document.querySelector('.ex-dialog .dialog-title, .dialog-title') || {}).textContent || '');
+              await until(async () => { if ((await title()) === T.review) await press(T.anyway); return (await title()) === T.done; }, 1200000, 'the export');
+              const file = path.join(dir, 'out', `${name}.mp4`);
+              if (!fs.existsSync(file)) return fail('no file');
+              const v = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=nb_frames,width,height', '-of', 'json', file], { encoding: 'utf8' }).stdout).streams[0];
+              const W = Number(v.width), H = Number(v.height), sx = W / p.width;
+              console.log('the file:', JSON.stringify(v), 'the timeline', L.total);
+              if (Number(v.nb_frames) !== L.total) return fail('not every frame');
+              // the words in their seconds, as wide as drawn, in the middle
+              for (const k of ['latin', 'arabic', 'names']) {
+                const [f0, f1] = L.at[placed[k]], mid = ((f0 + f1) / 2) / L.fps;
+                const c = cream(file, mid, W, H), box = boxOf(placed[k]);
+                const it = p.attached.find((a) => a.id === placed[k]), d = drawnCream(path.join(dir, p.assets[it.asset].file), Math.round((f1 - f0) / 2), box);
+                const want = (d.x1 - d.x0 + 1) * sx, got = c.x1 - c.x0 + 1, centre = (c.x0 + c.x1) / 2 / W, shift = Math.abs(c.x0 - d.x0 * sx) / W;
+                console.log(`${k} at ${mid.toFixed(2)} s: cream ${(c.share * 100).toFixed(2)} %, letters ${got} px wide from ${c.x0} (drawn ${Math.round(want)} from ${Math.round(d.x0 * sx)}), centre ${(centre * 100).toFixed(1)} %`);
+                if (!(c.share > 0.001)) return fail(`${k}: the words are not in the file in their seconds`);
+                if (Math.abs(centre - 0.5) > 0.04) return fail(`${k}: not in the middle`);
+                if (Math.abs(got - want) / want > 0.08) return fail(`${k}: not as wide as drawn (soft, or another face)`);
+                if (shift > 0.01) return fail(`${k}: not where it was drawn`);
+              }
+              const none = cream(file, 15.5, W, H);
+              if (none.share > 0.0005) return fail('cream where no template is');
+              const grey = cream(file, 0.05, W, H).sat, colour = cream(file, 15.5, W, H).sat;
+              console.log(`colour at the top of the frame: first shot ${grey.toFixed(1)}, last ${colour.toFixed(1)}`);
+              if (!(grey < 3 && colour > 8)) return fail('the first shot is not grey, or the last lost its colour');
+              await b.close();
+              console.log('PASSED');
+            } catch (e) { await fail(e && e.stack || e); }
+          })();
+          JS
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" VIDEO="$(cygpath -w "$HOME/tpl16.mp4")" NAME='قوالب الكتابة' MCP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/studio-mcp.mjs")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/templates_check.cjs")" || { taskkill //F //IM chrome.exe >/dev/null 2>&1; exit 1; }
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
       - name: the encode check tells a cleaner neighbour from an offset (hotfix after 1.0.24) — the rows of the export above, then the installed studio's encodeCheck on this machine's ffmpeg — the same picture beside frame n encoded cleaner passes, a one-frame offset of moving content still fails, no neighbour pictures keeps the old rule, a picture repeated on one side hides no offset (1.0.25)
         run: |
           P="$HOME/Documents/video-edit/studio/projects/تصدير ويندوز كامل/render"
@@ -2055,6 +2590,194 @@ jobs:
           })().catch((e) => fail(e && e.stack || e));
           JS
           URL="$URL" VIDEO="$(cygpath -w "$HOME/ramp35.mp4")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/encfail.cjs")"
+      - name: the frame kit and the Log rule (1.0.26) — small frame-coded clips at four rates, 8 and 10-bit, read back frame for frame and a 10 % blend told; three 10-bit DJI-looking clips with no gamma tag through «مقطع جديد» — flat opens as Log, near the line opens as normal and asks, contrasty is normal
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          KW="$HOME/kit-125"; rm -rf "$KW"; mkdir -p "$KW"
+          cat > "$HOME/kit_log.cjs" <<'JS'
+          // SPEC-v2 §82.10 (the frame kit) and §82.9 (the Log rule, his decision 19), on the studio as installed.
+          // env: URL (the running studio), KIT (tools/frame-kit.mjs), WORK (an empty folder of this step)
+          const fs = require('node:fs'), path = require('node:path'), { spawnSync } = require('node:child_process'), { pathToFileURL } = require('node:url');
+          const url = process.env.URL.replace(/\/+$/, ''), W = process.env.WORK;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const call = async (p, body) => { const r = await fetch(url + p, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+          const fail = (why) => { console.error('FAILED:', why); process.exit(1); };
+          (async () => {
+            const kit = await import(pathToFileURL(process.env.KIT).href);
+            // 1. the kit: every index back, at four rates, 8 and 10-bit, silent and with a tone
+            for (const [fps, bits, tone, size] of [['24000/1001', 8, 0, '640x360'], ['30000/1001', 10, 440, '360x640'], ['48000/1001', 8, 440, '640x360'], ['60000/1001', 10, 0, '320x180']]) {
+              const c = kit.makeClip({ out: path.join(W, `k${fps.split('/')[0]}.${bits === 10 ? 'mov' : 'mp4'}`), fps, bits, tone, size, secs: 1.5, start: 7 });
+              const got = kit.readFrames(c.file);
+              const right = got.filter((f, i) => f.index === 7 + i && !f.blended).length;
+              console.log(`kit ${fps} ${bits}-bit ${size}${tone ? ' tone' : ''}: ${c.bytes} bytes, ${right} of ${c.frames} frames read back`);
+              if (got.length !== c.frames || right !== c.frames) return fail(`the kit at ${fps} ${bits}-bit: ${right} of ${c.frames}`);
+            }
+            const base = kit.makeClip({ out: path.join(W, 'b.mp4'), fps: '30', secs: 1, size: '320x180' });
+            const bl = path.join(W, 'blend.mp4');
+            spawnSync('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-i', base.file, '-vf', "tblend=all_expr='A*0.9+B*0.1'", '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', bl]);
+            const blends = kit.readFrames(bl);
+            console.log(`a 10 % blend: ${blends.filter((f) => f.blended).length} of ${blends.length} told`);
+            if (!blends.length || blends.some((f) => !f.blended)) return fail('a 10 % blend read as a real frame');
+            // 2. the Log rule through «مقطع جديد»: 10-bit, DJI's words on the file, no gamma tag, no sound (a picture-only clip)
+            const want = { flat: ['log', false], near: ['rec709', true], contrasty: ['rec709', false] };
+            for (const look of Object.keys(want)) {
+              const c = kit.makeClip({ out: path.join(W, `DJI_${look}.mov`), look, bits: 10, secs: 2, dji: true });
+              const st = await call('/api/raw/start', { path: c.file, name: `لوق ${look}`, mode: 'full', face: 'none' });
+              if (st.status !== 202 || !st.body.folder) return fail(`${look}: the clip did not start: ${JSON.stringify(st)}`);
+              const folder = st.body.folder, x = `/x/${encodeURIComponent(folder)}`;
+              for (let i = 0; ; i++) {
+                const e = ((await call('/api/projects')).body.projects || []).find((p) => p.folder === folder);
+                if (e && e.status !== 'preparing' && e.phase !== 'running') break;
+                if (i > 600) return fail(`${look}: the clip never got ready`);
+                await sleep(500);
+              }
+              const a = (await call(`${x}/api/project`)).body.project.assets.a_src;
+              console.log(`${look}: input ${a.input}${a.logAsk ? `, asks (chroma ${a.logAsk.chroma}, p99 ${a.logAsk.p99})` : ''}`);
+              if (a.input !== want[look][0] || !!a.logAsk !== want[look][1]) return fail(`${look}: ${a.input}${a.logAsk ? ' asked' : ''}, not ${want[look][0]}${want[look][1] ? ' asked' : ''}`);
+            }
+            console.log('PASSED');
+          })().catch((e) => fail(e && e.stack || e));
+          JS
+          URL="$URL" KIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/frame-kit.mjs")" WORK="$(cygpath -w "$KW")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/kit_log.cjs")"; rc=$?
+          rm -rf "$KW"
+          exit $rc
+      - name: a chat edits the main video, then the export (1.0.26) — «ستّيني» keeps its shadda on NTFS; frame and strip with no page open; «changed nothing» with why; a new video appended and another put in a clip; a punch-in with no face; a clip muted and one reversed by its id; «تصدير» pressed — the shadda in the file's name, the reversed frames backwards one by one, the muted seconds silent, the frozen check passed
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
+          [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
+          KW="$HOME/chat-125"; rm -rf "$KW"; mkdir -p "$KW"
+          cat > "$HOME/wedding_chat.cjs" <<'JS'
+          // SPEC-v2 §82.1 – §82.8, §82.11 on the studio as installed: the chat's own tools, then an export pressed in the page.
+          // env: PP (puppeteer-core), CHROME, URL (the running studio), KIT (tools/frame-kit.mjs), MCP (tools/studio-mcp.mjs),
+          // WORK (an empty folder of this step)
+          const pptr = require(process.env.PP);
+          const fs = require('node:fs'), path = require('node:path'), { spawn, spawnSync } = require('node:child_process'), { pathToFileURL } = require('node:url');
+          const url = process.env.URL.replace(/\/+$/, ''), W = process.env.WORK;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const call = async (p, body) => { const r = await fetch(url + p, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+          let browser = null;
+          const fail = async (why) => { console.error('FAILED:', why); if (browser) await browser.close().catch(() => {}); process.exit(1); };
+          async function until(fn, ms, what) { const t0 = Date.now(); for (;; await sleep(500)) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) throw new Error(`${what}: not in ${Math.round(ms / 1000)} s`); } }
+          // the chat's tools, as the B Studio plugin starts them (studio-mcp.mjs --chat), spoken to as Claude Code does
+          function chat(folder) {
+            const c = spawn(process.execPath, [process.env.MCP, '--chat', '--url', url, '--project', folder], { env: { ...process.env, STUDIO_DIR: '', STUDIO_BASE: '' }, stdio: ['pipe', 'pipe', 'pipe'] });
+            let buf = '', id = 0, err = '';
+            const waiters = new Map();
+            c.stderr.on('data', (d) => { err += d; });
+            c.stdout.on('data', (d) => { buf += d; for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) { const line = buf.slice(0, i); buf = buf.slice(i + 1); let m = null; try { m = JSON.parse(line); } catch { continue; } const w = waiters.get(m.id); if (w) { waiters.delete(m.id); w(m); } } });
+            const rpc = (method, params) => new Promise((r) => { id += 1; waiters.set(id, r); c.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); });
+            return {
+              hello: () => rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'windows-check', version: '0' } }),
+              async call(name, args) { const r = await rpc('tools/call', { name, arguments: args }); const content = (r.result && r.result.content) || []; return { text: content.filter((x) => x.type === 'text').map((x) => x.text).join('\n'), images: content.filter((x) => x.type === 'image').length, isError: !!(r.result && r.result.isError), log: err.slice(-600) }; },
+              stop: () => c.kill(),
+            };
+          }
+          (async () => {
+            const kit = await import(pathToFileURL(process.env.KIT).href);
+            const cam = kit.makeClip({ out: path.join(W, 'كاميرا.mp4'), fps: '30', secs: 3, size: '640x360', tone: 440 });
+            const drone = kit.makeClip({ out: path.join(W, 'درون.mp4'), fps: '30', secs: 2, size: '640x360', start: 500, tone: 660 });
+            const other = kit.makeClip({ out: path.join(W, 'لقطة ثانية.mp4'), fps: '30', secs: 2, size: '640x360', start: 1000, tone: 880 });
+            // 1 «ستّيني»: the clip's folder keeps the shadda (it was «ست_يني»), on NTFS
+            const st = await call('/api/raw/start', { path: cam.file, name: 'ستّيني', mode: 'manual', face: 'none' });
+            console.log('start', st.status, JSON.stringify(st.body));
+            if (st.status !== 202 || st.body.folder !== 'ستّيني') return fail('the folder lost its shadda');
+            const folder = st.body.folder, x = `/x/${encodeURIComponent(folder)}`;
+            await until(async () => { const e = ((await call('/api/projects')).body.projects || []).find((p) => p.folder === folder); return e && e.status !== 'preparing' && e.phase !== 'running'; }, 300000, 'the clip ready');
+            const root = (await call('/api/info')).body.root, dir = path.join(root, folder);
+            console.log('the folder on disk:', fs.readdirSync(root).filter((n) => n.normalize('NFC').startsWith('ست')).join(' | '));
+            if (!fs.readdirSync(root).includes('ستّيني')) return fail('no folder «ستّيني» on disk');
+            const proj = async () => (await call(`${x}/api/project`)).body.project;
+            const m = chat(folder);
+            await m.hello();
+            // 2 frame and strip with no editor page open (the hidden page draws them); 409 before
+            const fr = await m.call('frame', { seconds: 1, width: 540 });
+            const shot = (/saved: (.+?\.jpg)/.exec(fr.text) || [])[1];
+            console.log('frame:', fr.text.split('\n')[0]);
+            if (fr.isError || !shot || !fs.existsSync(shot) || fs.statSync(shot).size < 1000) return fail(`frame with no page: ${fr.text} ${fr.log}`);
+            const sp = await m.call('strip', { from: 0, to: 3, count: 3 });
+            console.log('strip:', sp.images, 'picture(s)', sp.isError ? sp.text : '');
+            if (sp.isError || sp.images < 1) return fail(`strip with no page: ${sp.text}`);
+            // 3 «changed nothing», with why
+            const none = await m.call('apply', { operations: [{ name: 'appendSpine', args: { asset: 'a_nothere' } }], summary: 'x' });
+            console.log('an asset it does not have:', none.text);
+            if (!/changed nothing: asset a_nothere is not in the project/.test(none.text)) return fail('no «changed nothing» with its reason');
+            // 4 a new video on the main video, and another put in a clip
+            const id1 = (/asset (a_[\w-]+)/.exec((await m.call('add_media', { path: drone.file })).text) || [])[1];
+            const ap = await m.call('apply', { operations: [{ name: 'appendSpine', args: { asset: id1 } }], summary: 'أضفت الدرون' });
+            let p = await proj();
+            console.log('appendSpine:', ap.text.split('\n')[0], '| clips', p.spine.length);
+            if (ap.isError || p.spine.length !== 2 || p.spine[1].asset !== id1) return fail('the new video did not join the main video');
+            const c2 = p.spine[1];
+            const id2 = (/asset (a_[\w-]+)/.exec((await m.call('add_media', { path: other.file })).text) || [])[1];
+            const rp = await m.call('apply', { operations: [{ name: 'replaceAsset', args: { id: c2.id, asset: id2 } }], summary: 'بدّلت اللقطة' });
+            p = await proj();
+            console.log('replaceAsset:', rp.text.split('\n')[0], '|', JSON.stringify(p.spine[1]));
+            if (rp.isError || p.spine[1].asset !== id2 || p.spine[1].in !== c2.in || p.spine[1].dur !== c2.dur) return fail('the clip did not take the other footage, or lost its start or length');
+            // 5 a punch-in on the clip with no face, its sound muted, the other clip reversed by its id alone
+            const c1 = p.spine[0].id;
+            const ed = await m.call('apply', { operations: [{ name: 'setSpineTf', args: { ids: [c1], tf: { s: 1.2 } } }, { name: 'setProps', args: { ids: [c1], patch: { 'audio.mute': true } } }], summary: 'قرّبت وكتمت' });
+            const rv = await m.call('apply', { operations: [{ name: 'reverseClip', args: { id: c2.id } }], summary: 'عكستها' });
+            p = await proj();
+            console.log('punch-in and mute:', ed.text.split('\n')[0], '| reverse:', rv.text.split('\n')[0]);
+            if (ed.isError || p.spine[0].tf.s !== 1.2 || !(p.spine[0].audio && p.spine[0].audio.mute)) return fail('the punch-in or the mute did not land');
+            if (rv.isError || !p.spine[1].rev) return fail('the clip was not reversed');
+            m.stop();
+            // 6 «تصدير», pressed in the page
+            browser = await pptr.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
+            const page = await browser.newPage();
+            try { await page._client().send('Network.disable'); } catch { /* another puppeteer */ }
+            await page.setViewport({ width: 1280, height: 800 });
+            await page.goto(`${url}/?p=${encodeURIComponent(folder)}&test=1`, { waitUntil: 'domcontentloaded' });
+            await page.waitForFunction(() => window.__mohrer && window.__mohrer.ready === true, { timeout: 120000 });
+            const hook = (fn, ...a) => page.evaluate(`(${fn})(window.__mohrer, ...${JSON.stringify(a)})`);
+            const T = await hook((mm) => ({ exp: mm.t('hd.export'), go: mm.t('ex.go'), done: mm.t('ex.done'), review: mm.t('pf.title'), anyway: mm.t('pf.anyway') }));
+            const press = async (label) => { const el = (await page.evaluateHandle((s) => [...document.querySelectorAll('button')].find((b) => b.offsetParent !== null && b.textContent.trim() === s) || null, label)).asElement(); if (!el) return false; await el.click(); return true; };
+            const L = await hook((mm) => { const pp = mm.store.state.p, l = mm.store.state.L; return { total: l.total, fps: pp.fps[0] / pp.fps[1], W: pp.width, H: pp.height, cuts: l.spine.map((c) => [c.start, c.end]) }; });
+            if (!(await press(T.exp))) return fail(`no «${T.exp}» button`);
+            await page.waitForFunction(() => document.querySelector('#ex-name') && document.querySelector('#ex-name').value.length > 0, { timeout: 20000 });
+            const name = await page.$eval('#ex-name', (e) => e.value);
+            if (!(await press(T.go))) return fail(`no «${T.go}» in the export sheet`);
+            const title = () => page.evaluate(() => (document.querySelector('.ex-dialog .dialog-title, .dialog-title') || {}).textContent || '');
+            await until(async () => {
+              if ((await title()) === T.review) await press(T.anyway);
+              const w = await page.evaluate(() => [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent));
+              if ((await title()) !== T.done && w.length && !(await page.evaluate(() => { const r = document.querySelector('.ex-run'); return !!r && !r.hidden; }))) throw new Error('the export stopped: ' + w.join(' | '));
+              return (await title()) === T.done;
+            }, 900000, 'the export');
+            await browser.close(); browser = null;
+            // 7 the file: its name, every frame, the reversed clip backwards one by one, the muted seconds silent
+            const out = path.join(dir, 'out'), file = path.join(out, `${name}.mp4`);
+            console.log('exported:', name, '| out/:', fs.readdirSync(out).join(' | '));
+            if (!name.normalize('NFC').startsWith('ستّيني') || !fs.existsSync(file)) return fail('the export\'s name lost its shadda, or no file');
+            const v = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=nb_frames,width,height', '-of', 'json', file], { encoding: 'utf8' }).stdout).streams[0];
+            if (Number(v.nb_frames) !== L.total) return fail(`${v.nb_frames} frames for a timeline of ${L.total}`);
+            // where the 640×360 clip sits in the frame (whole, centred: the frame's own shape or with edges)
+            const fw = Number(v.width), fh = Number(v.height), k = Math.min(fw / 640, fh / 360), bw = Math.round(640 * k), bh = Math.round(360 * k);
+            const got = kit.readFrames(file, { box: [Math.round((fw - bw) / 2), Math.round((fh - bh) / 2), bw, bh] });
+            const [s2, e2] = L.cuts[1];
+            const back = got.slice(s2, e2).map((f) => f.index);
+            console.log(`the reversed clip (${s2}–${e2}): ${back.slice(0, 3).join(', ')} … ${back.slice(-2).join(', ')}`);
+            if (back[0] !== 1000 + (e2 - s2) - 1 || back.some((n, i) => i && n !== back[i - 1] - 1)) return fail('the reversed clip does not run backwards one frame at a time (a frame held or skipped)');
+            // the loudest sample of a stretch (ffmpeg volumedetect: «-inf» or about −91 dB for digital silence); null: no sound read
+            const vol = (a, b) => { const m = /max_volume: (-inf|-?[\d.]+) dB/.exec(spawnSync('ffmpeg', ['-v', 'info', '-ss', String(a), '-t', String(b - a), '-i', file, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' }).stderr); return m ? (m[1] === '-inf' ? -Infinity : Number(m[1])) : null; };
+            const muted = vol(0.2, L.cuts[0][1] / L.fps - 0.2), heard = vol(s2 / L.fps + 0.2, e2 / L.fps - 0.2);
+            console.log(`the muted clip's loudest: ${muted} dB | the other clip's: ${heard} dB`);
+            if (muted === null || heard === null) return fail('the sound of the file could not be read');
+            if (!(muted <= -90) || !(heard > -40)) return fail('the muted clip is heard, or the other one is not');
+            const vf = fs.readdirSync(path.join(dir, 'render')).map((n) => path.join(dir, 'render', n, 'verify.json')).filter((f) => fs.existsSync(f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+            const fz = vf && JSON.parse(fs.readFileSync(vf, 'utf8')).checks.find((c) => c.name === 'frozen');
+            console.log('the frozen check:', JSON.stringify(fz && { ok: fz.ok, runs: fz.detail.runs, unchecked: fz.detail.unchecked }));
+            if (!fz || !fz.ok) return fail('no frozen check in verify.json, or it failed');
+            console.log('PASSED');
+          })().catch((e) => fail(e && e.stack || e));
+          JS
+          PP="$(cygpath -w "$HOME/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" URL="$URL" KIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/frame-kit.mjs")" MCP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/studio-mcp.mjs")" WORK="$(cygpath -w "$KW")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/wedding_chat.cjs")"; rc=$?
+          rm -rf "$KW"
+          taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+          exit $rc
       - name: a sideways wheel pans the timeline in Windows' Chrome (GitHub #3, 1.0.24) — fine steps under a pixel (a Logitech MX Master's side wheel, a precision touchpad) add up at 100 % scaling, and a sideways wheel over the track names and the overview strip pans too
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"

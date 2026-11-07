@@ -602,7 +602,9 @@ jobs:
                   for (let i = 0; i < 10; i++) {
                     if (await step(300 + i) !== ++total) return fail('a step while it was held made no step');
                     if (await projSaved() !== 'saved') return fail('the project did not save while the history file was held');
-                    await hook((m) => m.ctx.undoKeep.flush());
+                    // the history saves as the page saves it by itself (its own tries 1, 2, 4, 8 s): a flush here cancels the page's
+                    // next try, and the run of 1.0.26 (42361007011) never saw it go through once the file was free
+                    await sleep(300);
                   }
                   const during = puts.slice(from);
                   console.log('while held, the history answered', JSON.stringify(during));

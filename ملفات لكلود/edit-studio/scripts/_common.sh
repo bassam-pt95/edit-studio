@@ -65,12 +65,14 @@ old_plan(){
 }
 # بايثون يقرأ الملفات UTF-8 بكل الأنظمة (على ويندوز الافتراضي ترميز النظام، فالملف اللي فيه عربي يوقّف pip أو السكربت)
 export PYTHONUTF8=1
-# بايثون الاستوديو بالماك 3.12 او احدث: أدوات الصوت (dpdfnet 0.6.0 ما له نسخة لـ3.11، وnumpy 2.5 يبي Requires-Python >=3.12).
-# فحص 1.0.23 للماك النظيف: python3 فيه كان 3.11.9 من python.org، والتثبيت اخذه وما نزل له شي (مراجعة 1.0.19، I1)
-py312(){ "$1" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; }
-# ماك: PYBIN = اول بايثون 3.12 او احدث بالـPATH، والا فاضي (setup.sh يقول بايثون ناقص، وتجهيز المونتاج قبله ينزّله من Homebrew)
-mac_pybin(){ local c; PYBIN=""; hash -r; for c in python3 python3.14 python3.13 python3.12; do command -v "$c" >/dev/null 2>&1 && py312 "$c" && { PYBIN="$c"; return 0; }; done; return 1; }
-# أدوات الصوت في <data>/py من ملف المتطلبات $1. بالماك venv من بايثون اقدم من 3.12 (او ما يشتغل) ينبني من جديد من PYBIN: القديم
+# بايثون أدوات الصوت والتفريغ من 3.12 إلى 3.14 بس، النسخ اللي جربناها: dpdfnet 0.6.0 ما له نسخة لـ3.11، وnumpy 2.5 يبي
+# Requires-Python >=3.12 (فحص 1.0.23 للماك النظيف: python3 فيه كان 3.11.9 من python.org، مراجعة 1.0.19، I1). وفوق 3.14 لا:
+# فحص 1.0.24 للماك النظيف (6 نوفمبر): python حق Homebrew صار 3.15.2، وonnxruntime (يجي مع dpdfnet) ما له نسخة لـ3.15 بأي إصدار
+py_fits(){ "$1" -c 'import sys; sys.exit(not (3, 12) <= sys.version_info[:2] <= (3, 14))' </dev/null >/dev/null 2>&1; }
+# ماك: PYBIN = اول بايثون من 3.12 إلى 3.14 بالـPATH، والا فاضي (setup.sh يقول بايثون ناقص، وتجهيز المونتاج قبله ينزّل
+# python@3.14 من Homebrew). python3 حق Homebrew ممكن يكون 3.15: يتعدّاه لـpython3.14
+mac_pybin(){ local c; PYBIN=""; hash -r; for c in python3 python3.14 python3.13 python3.12; do command -v "$c" >/dev/null 2>&1 && py_fits "$c" && { PYBIN="$c"; return 0; }; done; return 1; }
+# أدوات الصوت في <data>/py من ملف المتطلبات $1. بالماك venv من بايثون برا 3.12 إلى 3.14 (او ما يشتغل) ينبني من جديد من PYBIN: القديم
 # ينشال على جنب، ولو الجديد ما اكتمل (مثلا بلا نت) يرجع مكانه زي ما كان، ولو اكتمل يروح لسلة المهملات (فيه اي شي ركّبه
 # المستخدم بنفسه). ويندوز على حاله (py -3.12 يختاره resolve_pybin)
 # One interpreter call: floor, installed pins and imports; no pip during a check.
@@ -78,7 +80,7 @@ studio_py_ready(){
   "$PY" -c '
 import sys, platform, importlib.metadata as metadata
 print(platform.python_version())
-if sys.version_info < (3, 12): sys.exit(1)
+if not (3, 12) <= sys.version_info[:2] <= (3, 14): sys.exit(1)
 with open(sys.argv[1]) as f:
     pins = [line.split("#", 1)[0].strip() for line in f]
 for pin in filter(None, pins):
@@ -106,7 +108,7 @@ studio_py(){
   req="$1"; v="$DATA/py"; old=""
   [ "$OS" != mac ] || venv_recover "$v" studio_py_ready "$req" || return 1
   if [ "$OS" = win ]; then { [ -x "$PY" ] || "$PYBIN" -m venv "$(wp "$v")"; } && "$PY" -m pip install --quiet --disable-pip-version-check -r "$req"; return; fi
-  [ -x "$PY" ] && py312 "$PY" && { "$PY" -m pip install --quiet --disable-pip-version-check -r "$req" && studio_py_ready "$req"; return; }
+  [ -x "$PY" ] && py_fits "$PY" && { "$PY" -m pip install --quiet --disable-pip-version-check -r "$req" && studio_py_ready "$req"; return; }
   [ -n "$PYBIN" ] || return 1
   [ ! -e "$v.old-$$" ] || return 1
   saved_traps="$(trap -p EXIT INT TERM)"
@@ -178,37 +180,37 @@ resolve_pybin(){
   done
   return 0
 }
-# ويندوز: بايثون أدوات الصوت (venv <data>/py: تنظيف الصوت ومشاهد الرسم) لازم 3.12 او احدث: dpdfnet 0.6.0 يبي 3.11 وnumpy 2.5.4
-# يبي 3.12. بلاغ #5 (متابع على ويندوز، 4 نوفمبر): pip قال «dpdfnet==0.6.0 غير موجودة» مرتين، لأن الـvenv انبنى من اول بايثون
-# لقاه (PYBIN: venv المونتاج او اول python بالـPATH، اي نسخة). VPY = venv المونتاج لو 3.12 او احدث، والا 3.12 ثم 3.13 ثم 3.14
-# من مشغّل بايثون ويندوز (py)، والا python/python3 حقيقي 3.12 او احدث، والا فاضي و VPY_OLD نسخة اللي لقاه (يقولها السطر).
+# ويندوز: بايثون أدوات الصوت (venv <data>/py: تنظيف الصوت ومشاهد الرسم) لازم من 3.12 إلى 3.14 (py_fits): dpdfnet 0.6.0 يبي 3.11
+# وnumpy 2.5.4 يبي 3.12، وonnxruntime ما له نسخة لـ3.15. بلاغ #5 (متابع على ويندوز، 4 نوفمبر): pip قال «dpdfnet==0.6.0 غير
+# موجودة» مرتين، لأن الـvenv انبنى من اول بايثون لقاه (PYBIN: venv المونتاج او اول python بالـPATH، اي نسخة). VPY = venv المونتاج
+# لو بالمدى، والا 3.12 ثم 3.13 ثم 3.14 من مشغّل بايثون ويندوز (py)، والا python/python3 حقيقي بالمدى (3.15 من python.org اول
+# الـPATH يتعدّاه)، والا فاضي و VPY_OLD نسخة اللي لقاه (يقولها السطر).
 # PYBIN ما يتغير: الدكتور يفحص فيه التفريغ وكاشف الوجه (venv المونتاج)
 win_voice_python(){
   local c v
   VPY=""; VPY_OLD=""
-  vok(){ "$1" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; }
   vname(){ [ -n "$VPY_OLD" ] || VPY_OLD="$("$1" -c 'import platform;print(platform.python_version())' </dev/null 2>/dev/null | tr -d '\r')"; }
-  if "$MPY" -c 'import sys' </dev/null >/dev/null 2>&1; then vok "$MPY" && { VPY="$MPY"; return 0; }; vname "$MPY"; fi
+  if "$MPY" -c 'import sys' </dev/null >/dev/null 2>&1; then py_fits "$MPY" && { VPY="$MPY"; return 0; }; vname "$MPY"; fi
   for v in 3.12 3.13 3.14; do
     c="$(py -$v -c 'import sys;print(sys.executable)' </dev/null 2>/dev/null | tr -d '\r')"
     [ -n "$c" ] || continue
     c="$(cygpath -u "$c")"
-    vok "$c" && { VPY="$c"; return 0; }
+    py_fits "$c" && { VPY="$c"; return 0; }
   done
   while IFS= read -r c; do
     case "$(printf '%s' "$c" | tr 'A-Z' 'a-z')" in ""|*/windowsapps/*) continue ;; esac
     "$c" -c 'import sys' </dev/null >/dev/null 2>&1 || continue
-    vok "$c" && { VPY="$c"; return 0; }
+    py_fits "$c" && { VPY="$c"; return 0; }
     vname "$c"
   done <<< "$(type -aP python python3)"
   return 0
 }
-# ويندوز: أدوات الصوت جاهزة = بايثون <data>/py نسخته 3.12 او احدث، والنسخ المثبّتة نفس ملف المتطلبات $1، والاستيراد يشتغل.
+# ويندوز: أدوات الصوت جاهزة = بايثون <data>/py نسخته من 3.12 إلى 3.14، والنسخ المثبّتة نفس ملف المتطلبات $1، والاستيراد يشتغل.
 # مراجعة Astra لـfix-reports (البند 3): الجاهزية كانت الاستيراد بس، فـvenv على 3.11 مكتباته القديمة تنستورد يبقى وما ينبني من
 # جديد. نفس فحص studio_py_ready حق الماك (fix-py312): لو اندمجوا يصيرون فحص واحد
 win_py_ready(){
   [ -x "$PY" ] || return 1
-  "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1 || return 1
+  py_fits "$PY" || return 1
   "$PY" -c '
 import sys, importlib.metadata as metadata
 with open(sys.argv[1], encoding="utf-8") as f:

@@ -109,10 +109,12 @@ fi
 # Homebrew بـ--break-system-packages (مقفول على التثبيت العادي)، واول brew upgrade لبايثون يخليها وراه ويوقف التفريغ.
 # BASEPY = بايثون الجهاز اللي ينبني منه الـvenv. PY = بايثون الـvenv: الفحص عليه، ولو ما يشتغل (انشال بايثون اللي انبنى منه) ناقص.
 # السكربتات تشتغل عليه بنفسها: _venv.py يعيد تشغيل السكربت فيه لو انشغل بـpython3 حق الجهاز
-# BASEPY بالماك 3.12 او احدث (نسخ الـvenv الثابتة تبيها): بايثون أبل (/usr/bin/python3 من أدوات Xcode، 3.9) ما يكفي، فيصير بايثون
-# ناقص وHomebrew ينزّل غيره. قبل كان الـvenv ينبني منه، pip يفشل فيه، وكل --install بعدها يبقيه (مراجعة 1.0.19، I1).
-# 3.12 مو 3.11: numpy 2.5 يبي Requires-Python >=3.12، وماك فحص 1.0.23 النظيف (اللي عنده 3.11.9 من python.org بس) ما نزل له شي
-py_new(){ "$1" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; }
+# BASEPY بالماك من 3.12 إلى 3.14 (نسخ الـvenv الثابتة تبيها): بايثون أبل (/usr/bin/python3 من أدوات Xcode، 3.9) ما يكفي، فيصير
+# بايثون ناقص وHomebrew ينزّل غيره. قبل كان الـvenv ينبني منه، pip يفشل فيه، وكل --install بعدها يبقيه (مراجعة 1.0.19، I1).
+# 3.12 مو 3.11: numpy 2.5 يبي Requires-Python >=3.12، وماك فحص 1.0.23 النظيف (اللي عنده 3.11.9 من python.org بس) ما نزل له شي.
+# و3.14 آخرها: فحص 1.0.24 للماك النظيف (6 نوفمبر 2026) لقى python حق Homebrew صار 3.15.2، وmlx 0.32.2 ما له نسخة لـ3.15
+# (ولا onnxruntime حق أدوات صوت الاستوديو بأي إصدار)، فالـvenv انبنى منه وما نزل فيه شي. Homebrew ينطلب منه python@3.14 بالاسم
+py_fits(){ "$1" -c 'import sys; sys.exit(not (3, 12) <= sys.version_info[:2] <= (3, 14))' </dev/null >/dev/null 2>&1; }
 # Keep the install and readiness pins together.
 mac_pin_list(){
   if [ $APPLE -eq 1 ]; then echo "numpy==2.5.2 mlx==0.32.2 mlx-whisper==0.4.3 torch==2.13.0"
@@ -122,7 +124,7 @@ mac_ready(){
   env -u PYTHONPATH -u PYTHONHOME "$VPY" -c '
 import sys, platform, importlib.metadata as metadata
 print(platform.python_version())
-if sys.version_info < (3, 12): sys.exit(1)
+if not (3, 12) <= sys.version_info[:2] <= (3, 14): sys.exit(1)
 for pin in sys.argv[1].split():
     name, expected = pin.split("==")
     if metadata.version(name) != expected: sys.exit(1)
@@ -145,7 +147,8 @@ venv_recover(){
     return 0
   done
 }
-mac_base(){ local c; BASEPY=""; hash -r; for c in python3 python3.14 python3.13 python3.12; do have "$c" && py_new "$c" && { BASEPY="$c"; return 0; }; done; return 1; }
+# python3 حق Homebrew ممكن يكون 3.15 (python@3.15 هو «python» عنده الحين): يتعدّاه لـpython3.14
+mac_base(){ local c; BASEPY=""; hash -r; for c in python3 python3.14 python3.13 python3.12; do have "$c" && py_fits "$c" && { BASEPY="$c"; return 0; }; done; return 1; }
 if [ "$OS" = mac ]; then
   VEB="${VEB_HOME:-$HOME/Documents/video-edit}"; VENV="$VEB/tools/py"; VPY="$VENV/bin/python"; venv_recover "$VENV" mac_ready || exit 1; mac_base; PY="$VPY"
 fi
@@ -245,8 +248,8 @@ if [ "$OS" = win ]; then   # ويندوز: numpy والتفريغ وكاشف ا�
   else line "اختياري: قص الشخص بنموذج على كرت الشاشة (حواف شعر احسن لتاثير الكلام ورا الشخص) ~110 ميقا: $0 --install --cutout"; fi
   [ -s "$ISNET" ] && OK+=("قص الصور") || line "اختياري: نموذج قص الصور (الكولاج والصور المولدة) ~180 ميقا: $0 --subjectcut. بدونه subjectcut.py يقص الخلفية السادة بس"
 else
-if [ "$OS" = mac ]; then   # ماك: بايثون 3.12 او احدث ينبني منه الـvenv، او venv منه يشتغل
-  { [ -n "$BASEPY" ] || py_new "$VPY"; } && OK+=("python") || { MISS+=("python"); SIZE+=("Python 3.12 أو أحدث ~50 ميقا$(have python3 && printf ' (اللي عندك %s قديم)' "$(python3 -V 2>&1)")"); }
+if [ "$OS" = mac ]; then   # ماك: بايثون من 3.12 إلى 3.14 ينبني منه الـvenv، او venv منه يشتغل. اللي عندك اقدم: «قديم»؛ احدث (3.15): يقولها
+  { [ -n "$BASEPY" ] || py_fits "$VPY"; } && OK+=("python") || { MISS+=("python"); SIZE+=("Python 3.12 إلى 3.14 ~50 ميقا$(have python3 && if python3 -c 'import sys; sys.exit(sys.version_info < (3, 15))' </dev/null >/dev/null 2>&1; then printf ' (الموجود عندك %s أحدث مما تعمل عليه أدوات التفريغ)' "$(python3 -V 2>&1)"; else printf ' (الموجود عندك %s قديم)' "$(python3 -V 2>&1)"; fi)"); }
 else
 have "${BASEPY:-$PY}" && OK+=("python") || { MISS+=("python"); SIZE+=("Python ~50 ميقا"); }
 fi
@@ -316,8 +319,9 @@ mac_pins(){
 mac_venv(){
   old=""
   venv_recover "$VENV" mac_ready || return 1
-  py_new "$VPY" && { mac_pins; return; }
-  # venv من بايثون اقدم من 3.12 (أبل 3.9، او 3.11 من python.org) او ما يشتغل: ينبني من جديد من BASEPY، ولا شي بلا بايثون جديد.
+  py_fits "$VPY" && { mac_pins; return; }
+  # venv من بايثون برا 3.12 إلى 3.14 (أبل 3.9، او 3.11 من python.org، او 3.15 حق Homebrew) او ما يشتغل: ينبني من جديد من BASEPY،
+  # ولا شي بلا بايثون بالمدى.
   # القديم ما ينمسح قبل: ينشال على جنب، ولو الجديد ما اكتمل (مثلا بلا نت) يرجع مكانه زي ما كان؛ ولو اكتمل يروح لسلة المهملات
   # (فيه اي شي ركّبه المستخدم بنفسه). مو --clear: كان يمسح القديم ولو فشل الجديد
   [ -n "$BASEPY" ] || return 1
@@ -371,7 +375,7 @@ for m in "${MISS[@]}"; do
     ffmpeg|node|python)
       if [ "$OS" = mac ]; then
         if ! have brew; then NOTE+=("لازم Homebrew أول — المستخدم يلصق هذا بالتيرمنال: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""); continue; fi
-        case $m in ffmpeg) line "⏬ ffmpeg…"; brew install ffmpeg ;; node) line "⏬ Node…"; brew install node ;; python) line "⏬ Python…"; brew install python && mac_base ;; esac || NOTE+=("$m فشل")
+        case $m in ffmpeg) line "⏬ ffmpeg…"; brew install ffmpeg ;; node) line "⏬ Node…"; brew install node ;; python) line "⏬ Python…"; brew install python@3.14 && mac_base ;; esac || NOTE+=("$m فشل")
       elif [ "$OS" = win ]; then
         if ! have winget; then NOTE+=("winget مو موجود — حدّث «App Installer» من متجر مايكروسوفت"); continue; fi
         case $m in ffmpeg) line "⏬ ffmpeg…"; winget_i Gyan.FFmpeg ;; node) line "⏬ Node…"; line "$UAC"; winget_i OpenJS.NodeJS.LTS "${X64[@]}" ;; python) line "⏬ Python…"; winget_i Python.Python.3.12 "${X64[@]}" ;; esac

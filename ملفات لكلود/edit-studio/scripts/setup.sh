@@ -38,8 +38,8 @@ command -v ffmpeg >/dev/null 2>&1 || MISS+=("ffmpeg")
 command -v ffprobe >/dev/null 2>&1 || MISS+=("ffprobe")
 if [ "$OS" = win ]; then resolve_pybin; [ -n "$PYBIN" ] || MISS+=("Python")   # ويندوز: اختصار المتجر ما ينحسب بايثون
 else
-# الماك: من جديد بعد تجهيز المونتاج (ممكن نزّل بايثون Homebrew للتو)، و3.12 او احدث بس
-if [ "$OS" = mac ]; then mac_pybin || MISS+=("Python 3.12 أو أحدث"); else command -v "$PYBIN" >/dev/null 2>&1 || MISS+=("Python"); fi
+# الماك: من جديد بعد تجهيز المونتاج (ممكن نزّل بايثون Homebrew للتو)، ومن 3.12 إلى 3.14 بس (py_fits)
+if [ "$OS" = mac ]; then mac_pybin || MISS+=("Python 3.12 إلى 3.14"); else command -v "$PYBIN" >/dev/null 2>&1 || MISS+=("Python"); fi
 fi
 }
 tools_check
@@ -97,7 +97,7 @@ stt_py(){
 }
 FETCH="$PKG_DIR/studio/tools/np/model_fetch.py"
 model_ok(){ local t; t="$(stt_py)" || return 1; "$t" "$FETCH" --has </dev/null >/dev/null 2>&1; }
-# ويندوز: أدوات الصوت جاهزة بس على بايثون 3.12 او احدث وبالنسخ المثبّتة (مراجعة Astra لـfix-reports، البند 3؛ win_py_ready)
+# ويندوز: أدوات الصوت جاهزة بس على بايثون من 3.12 إلى 3.14 وبالنسخ المثبّتة (مراجعة Astra لـfix-reports، البند 3؛ win_py_ready)
 [ "$OS" = win ] && py_ok(){ win_py_ready "$PKG_DIR/studio/voice/requirements.txt"; }
 
 if [ $INSTALL -eq 0 ]; then
@@ -180,17 +180,18 @@ fi
 chmod -R a-w "$APP"
 "$NODE" "$APP/studio/start.mjs" --init >/dev/null || { echo "تعذّر تجهيز مجلد البيانات $DATA"; exit 1; }
 echo "✅ الاستوديو مثبّت (النسخة $PKG_VER) في $(showpath "$APP")"
-# ويندوز: أدوات الصوت ببايثون 3.12 او احدث (بلاغ #5: venv من بايثون اقدم وpip يقول «dpdfnet==0.6.0 غير موجودة»). ما فيه: سطر
-# يقول وش الناقص وكيف يجي، وتكمل باقي الخطوات. venv قديم (اقدم من 3.12) ينشال على جنب وينبني من جديد، ويرجع لو ما اكتمل الجديد
+# ويندوز: أدوات الصوت ببايثون من 3.12 إلى 3.14 (بلاغ #5: venv من بايثون اقدم وpip يقول «dpdfnet==0.6.0 غير موجودة»؛ و3.15 ما
+# له onnxruntime). ما فيه: سطر يقول وش الناقص وكيف يجي، وتكمل باقي الخطوات. venv برا المدى ينشال على جنب وينبني من جديد، ويرجع لو
+# ما اكتمل الجديد
 PY_AWAY=""
 if [ "$OS" = win ] && [ $WITH_PY -eq 1 ] && ! py_ok; then
   win_voice_python
   if [ -z "$VPY" ]; then
-    echo "⚠️  أدوات تنظيف الصوت ومشاهد الرسم تحتاج Python 3.12 أو أحدث${VPY_OLD:+، واللي على الجهاز $VPY_OLD}. ثبّته بـ: winget install -e --id Python.Python.3.12 ثم أعد التثبيت. الاستوديو يعمل بدونها."
+    echo "⚠️  أدوات تنظيف الصوت ومشاهد الرسم تحتاج Python من 3.12 إلى 3.14${VPY_OLD:+، والموجود على الجهاز $VPY_OLD}. ثبّته بالأمر: winget install -e --id Python.Python.3.12 ثم أعد التثبيت. الاستوديو يعمل بدونها."
     WITH_PY=0
   else
     PYBIN="$VPY"
-    if [ -x "$PY" ] && ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; then
+    if [ -x "$PY" ] && ! py_fits "$PY"; then
       PY_AWAY="$DATA/py.old-$(date +%Y%m%d%H%M%S)"; mv "$DATA/py" "$PY_AWAY" || PY_AWAY=""
     fi
   fi

@@ -95,6 +95,43 @@ jobs:
               || { echo "FAILED: setup exit $rc, and not only the transcriber this step put aside"; exit 1; }
           fi
           bash "$D/app/scripts/doctor.sh"
+      - name: a real Python 3.15 for the next step (python.org's newest, not put on the PATH)
+        id: py315
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+          update-environment: false
+      - name: the voice tools when the only Python is newer than they install on (hotfix after 1.0.24) — python.org's 3.15 first on the PATH, a launcher that knows no 3.12 to 3.14, no montage venv; setup.sh --install names the range and builds nothing from 3.15, the voice venv comes back as it was
+        # a follower who installed the newest Python from python.org: its installer puts it on the PATH and registers it with
+        # the py launcher, alone. The runner's own Pythons (the tool cache) are taken off the PATH for this step, a `py` that
+        # knows only 3.15 stands before the real launcher, and the montage venv (3.12) is put aside, or it would be taken
+        run: |
+          P315="${{ steps.py315.outputs.python-path }}"
+          [ -n "$P315" ] || { echo "FAILED: no Python 3.15 on this runner (setup-python said: ${{ steps.py315.outcome }}): the case is NOT covered"; exit 1; }
+          P315D="$(dirname "$(cygpath -u "$P315")")"
+          "$P315D/python.exe" -c "import sys; print('python.org stand-in:', sys.version.split()[0]); assert sys.version_info[:2] >= (3, 15)"
+          D="$HOME/Documents/video-edit/studio"; M="$HOME/Documents/video-edit/tools/py"
+          mkdir -p "$HOME/py315only"
+          printf '#!/bin/bash\ncase "$1" in -3.15|-3) shift; exec "%s" "$@";; *) echo "No suitable Python runtime found" >&2; exit 103;; esac\n' "$P315D/python.exe" > "$HOME/py315only/py"
+          chmod +x "$HOME/py315only/py"
+          NOPY="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vi '/hostedtoolcache/windows/python/' | paste -sd: -)"
+          PATH="$HOME/py315only:$P315D:$P315D/Scripts:$NOPY" bash -c 'for v in 3.12 3.13 3.14; do py -$v -V >/dev/null 2>&1 && { echo "the launcher still knows $v"; exit 1; }; done; type -aP python python3; python -V'
+          mv "$D/py" "$D/py.good"; mv "$M" "$M.aside"
+          set +e
+          PATH="$HOME/py315only:$P315D:$P315D/Scripts:$NOPY" bash "$HOME/.claude/skills/edit-studio/scripts/setup.sh" --install --no-montage --no-app > setup315.txt 2>&1; rc=$?
+          set -e
+          mv "$M.aside" "$M"
+          cat setup315.txt; echo "setup exit $rc (its doctor counts the transcriber put aside here: by construction)"
+          ok=1
+          grep -q 'تحتاج Python من 3.12 إلى 3.14، والموجود على الجهاز 3.15' setup315.txt || { echo "FAILED: no line naming the range and the 3.15 it found"; ok=0; }
+          if grep -qiE 'onnxruntime|No matching distribution|dpdfnet==' setup315.txt; then echo "FAILED: pip ran on 3.15"; ok=0; fi
+          if [ -e "$D/py" ]; then echo "FAILED: a voice venv was built: $("$D/py/Scripts/python.exe" -V 2>&1)"; rm -rf "$D/py"; ok=0; fi
+          if ls -d "$D"/py.old-* >/dev/null 2>&1; then echo "FAILED: an old venv was left beside it"; ok=0; fi
+          mv "$D/py.good" "$D/py"
+          "$D/py/Scripts/python.exe" -c "import platform, dpdfnet; print('voice venv back as it was:', platform.python_version())"
+          [ $ok = 1 ]
+          bash "$D/app/scripts/doctor.sh"
       - name: the face tool the montage skill installed on Windows (mediapipe 0.10.21), from its own Python — its detector loads and runs on a frame
         # (audit 1.0.19, P6) it used to pip-install mediapipe into the runner's Python and import it there, which passed even when
         # the skill's install had left it out; now nothing is installed here, and the studio's «face» below reads the same venv
@@ -1888,6 +1925,67 @@ jobs:
           { grep '^\[export\] ' "$HOME/Documents/video-edit/studio/server.log" || true; } | tail -n 5
           grep -q '^\[export\] تصدير ويندوز كامل' "$HOME/Documents/video-edit/studio/server.log" || { echo "FAILED: no [export] line in the log during a 7-minute export"; exit 1; }
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
+      - name: the encode check tells a cleaner neighbour from an offset (hotfix after 1.0.24) — the rows of the export above, then the installed studio's encodeCheck on this machine's ffmpeg — the same picture beside frame n encoded cleaner passes, a one-frame offset of moving content still fails, no neighbour pictures keeps the old rule, a picture repeated on one side hides no offset (1.0.25)
+        run: |
+          P="$HOME/Documents/video-edit/studio/projects/تصدير ويندوز كامل/render"
+          V="$(ls -t "$P"/*/verify.json 2>/dev/null | head -1)"
+          [ -n "$V" ] || { echo "FAILED: no verify.json of the export above"; exit 1; }
+          node -e 'const v = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const e = v.checks.find((c) => c.name === "encode"); console.log("the export above, rows [n, psnr, raw, next, own, alt, aligned]:", JSON.stringify(e.detail.map((x) => [x.n, x.psnr, x.raw, x.next, x.own, x.alt, x.aligned]))); if (!e.detail.every((x) => x.aligned)) process.exit(1)' "$(cygpath -w "$V")"
+          cat > "$HOME/offset_rule.mjs" <<'JS'
+          // the rule on this machine: the installed studio's encodeCheck, files made with this machine's ffmpeg (as test/unit/encode-offset.test.mjs)
+          import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { pathToFileURL } from 'node:url';
+          const E = await import(pathToFileURL(process.env.EXPORT_MJS).href);
+          const W = 96, H = 64, N = 12, AT = 6, TO_420 = 'scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=accurate_rnd+full_chroma_int,format=yuv420p';
+          const ff = (args, input) => { const r = spawnSync('ffmpeg', ['-nostdin', '-v', 'error', ...args], { input, maxBuffer: 1 << 26, timeout: 60000 }); if (r.status !== 0) throw new Error(String(r.stderr)); return r.stdout; };
+          const to420 = (rgba) => ff(['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-i', 'pipe:0', '-vf', TO_420, '-f', 'rawvideo', 'pipe:1'], rgba);
+          const noisy = (yuv, amp) => { const b = Buffer.from(yuv); for (let i = 0; i < W * H; i += 7) b[i] = Math.max(16, Math.min(235, b[i] + ((i / 7) & 1 ? amp : -amp))); return b; };
+          const still = () => { const b = Buffer.alloc(W * H * 4); for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0, bar = x >= 20 && x < 77 && y >= 28 && y < 34; b[4 * i] = bar ? 255 : 40 + y; b[4 * i + 1] = bar ? 32 : 40 + y; b[4 * i + 2] = bar ? 32 : 40 + y; b[4 * i + 3] = 255; } return b; };
+          const moving = (f) => { const b = Buffer.alloc(W * H * 4); for (let i = 0; i < W * H; i++) { const x = i % W, y = (i / W) | 0, bar = x >= 6 * f && x < 6 * f + 12; b[4 * i] = bar ? 220 : 50 + x; b[4 * i + 1] = bar ? 200 : 60 + y; b[4 * i + 2] = bar ? 180 : 70; b[4 * i + 3] = 255; } return b; };
+          let bad = 0;
+          const say = (ok, what, row) => { console.log(`${ok ? 'ok    ' : 'FAILED'} ${what}: ${JSON.stringify(row)}`); if (!ok) bad++; };
+          async function rows(pics, yuvs, near) {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'offset-rule-'));
+            try {
+              fs.mkdirSync(path.join(dir, 'check'));
+              fs.writeFileSync(path.join(dir, 'check', `${AT}.rgba`), pics[AT]);
+              for (const k of [AT - 1, AT + 1]) { if (near === 'rgba') fs.writeFileSync(path.join(dir, 'check', `${k}.rgba`), pics[k]); if (near === 'yuv') fs.writeFileSync(path.join(dir, 'check', `${k}.yuv`), to420(pics[k])); }
+              const file = path.join(dir, 'f.mp4');
+              ff(['-y', '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-s', `${W}x${H}`, '-framerate', '30', '-i', 'pipe:0', '-c:v', 'libx264', '-qp', '0', '-pix_fmt', 'yuv420p', file], Buffer.concat(yuvs));
+              return (await E.encodeCheck({ outPath: file, renderDir: dir, check: new Set([AT]), f0: 0, f1: N, W, H }))[0];
+            } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+          }
+          const S = Array.from({ length: N }, () => still()), sy = to420(S[0]);
+          const same = S.map((_, f) => noisy(sy, f === AT ? 2 : 1));
+          for (const near of ['rgba', 'yuv']) {
+            const r = await rows(S, same, near);
+            say(r.next > r.psnr + E.OFFSET_MARGIN_DB && r.psnr >= E.ENCODE_MIN_DB, `the case itself (${near}): a neighbour cleaner by more than ${E.OFFSET_MARGIN_DB} dB`, r);
+            say(r.aligned === true, `the same picture beside frame n, encoded cleaner (${near}): not an offset`, r);
+          }
+          const r0 = await rows(S, same, null);
+          say(r0.aligned === false, 'without the neighbours\' pictures: the old rule (refused)', r0);
+          const M = Array.from({ length: N }, (_, f) => moving(f)), my = M.map((p) => noisy(to420(p), 1));
+          for (const near of ['rgba', 'yuv']) {
+            say((await rows(M, my, near)).aligned === true, `moving content in place (${near})`, '');
+            for (const [name, list] of [['late', [my[0], ...my.slice(0, N - 1)]], ['early', [...my.slice(1), my[N - 1]]]]) {
+              const r = await rows(M, list, near);
+              say(r.aligned === false, `a one-frame offset of moving content, ${name} (${near}): refused`, r);
+            }
+          }
+          // 1.0.25 (Astra 2 on fix-hotfix): the picture repeated on one side of the check frame (footage at half the timeline's
+          // rate, a still after a cut): file frame n ± 1 matches both pictures alike, so file frame n itself must show its own
+          const flat = (v) => { const b = Buffer.alloc(W * H * 4, v); for (let i = 3; i < b.length; i += 4) b[i] = 255; return b; };
+          const A = flat(100), B = flat(102);
+          for (const near of ['rgba', 'yuv']) {
+            const lateP = Array.from({ length: N }, (_, f) => (f < AT ? A : B)), earlyP = Array.from({ length: N }, (_, f) => (f <= AT ? A : B));
+            say((await rows(lateP, lateP.map(to420), near)).aligned === true, `a picture repeated on one side, in place (${near})`, '');
+            const rl = await rows(lateP, [lateP[0], ...lateP.slice(0, N - 1)].map(to420), near);
+            say(rl.aligned === false, `a picture repeated on one side, one frame late (${near}): refused`, rl);
+            const re = await rows(earlyP, [...earlyP.slice(1), earlyP[N - 1]].map(to420), near);
+            say(re.aligned === false, `a picture repeated on one side, one frame early (${near}): refused`, re);
+          }
+          process.exit(bad ? 1 : 0);
+          JS
+          EXPORT_MJS="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/server/export.mjs")" node "$HOME/offset_rule.mjs"
       - name: a picture the encode check refuses fails the export (GitHub #4, 1.0.24) — noise frames sent to a real export job end it as failed with its reason, no file takes the export's name, verify.json stays to look into; and raw alone (fine red and blue columns) saves the file with the done sheet's line saying what and where
         # the follower's export (an M4 Max) failed the encode check and was saved and called done all the same; the checks
         # now read the mux's .part, and a refused picture ends the job (server/export.mjs finish)

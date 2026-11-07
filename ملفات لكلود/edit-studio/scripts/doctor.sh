@@ -132,6 +132,12 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
         fi
       fi
     fi
+  # الماك: بايثون برا 3.12 إلى 3.14 (py_fits) ما ينركب عليه التفريغ، فالسطر يقول ليش، مو «يثبّتها تجهيز مهارة المونتاج» اللي كان يبني
+  # من نفس البايثون مرة ثانية. 1.0.24 على ماك نظيف بنى venv المونتاج من 3.15 حق Homebrew وما نزل فيه شي
+  elif [ "$OS" = mac ] && ! py_fits "$PYBIN"; then
+    PM="${PV#*.}"; PM="${PM%%.*}"
+    if [ "${PM:-0}" -ge 15 ] 2>/dev/null; then bad "Python $PV أحدث مما تعمل عليه أدوات التفريغ وتنظيف الصوت (3.12 إلى 3.14): شغّل setup.sh --install ليثبّت Python 3.14"
+    else bad "Python $PV أقدم مما تعمل عليه أدوات التفريغ وتنظيف الصوت (3.12 إلى 3.14): شغّل setup.sh --install ليثبّت Python 3.14"; fi
   else bad "Python $PV بلا أداة التفريغ (يثبّتها تجهيز مهارة المونتاج)"; fi
   # كاشف الوجه: الماك عنده حقه، وويندوز يستخدم mediapipe (مكان فاضي، الكابشن والوجه، وسّط الوجه)
   if [ "$OS" = win ]; then
@@ -143,7 +149,10 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
     elif "$PYBIN" -c "import mediapipe" 2>/dev/null; then warn "كاشف الوجه: نسخة mediapipe المثبّتة جديدة وما فيها الكاشف، فأزرار الوجه ما تطلع. الحل: شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
     else warn "كاشف الوجه ناقص: أزرار الوجه ما تطلع بالاستوديو (يثبّته تجهيز مهارة المونتاج)"; fi
   fi
-elif [ "$OS" = mac ] && command -v python3 >/dev/null 2>&1; then bad "Python 3.12 أو أحدث غير موجود (اللي عندك $(python3 -V 2>&1 | sed 's/^Python //') قديم): شغّل setup.sh --install"
+elif [ "$OS" = mac ] && command -v python3 >/dev/null 2>&1; then
+  PV="$(python3 -V 2>&1 | sed 's/^Python //')"; PM="${PV#*.}"; PM="${PM%%.*}"
+  if [ "${PM:-0}" -ge 15 ] 2>/dev/null; then bad "Python 3.12 إلى 3.14 غير موجود (الموجود عندك ${PV}، وهو أحدث مما تعمل عليه أدوات التفريغ وتنظيف الصوت): شغّل setup.sh --install"
+  else bad "Python 3.12 إلى 3.14 غير موجود (الموجود عندك $PV قديم): شغّل setup.sh --install"; fi
 else bad "Python غير موجود"; fi
 
 # Chrome (المعاينة والتصدير)

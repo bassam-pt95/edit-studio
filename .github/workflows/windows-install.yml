@@ -236,6 +236,35 @@ jobs:
           cut -c1-200 info.json; echo
           # الاستوديو المركّب يشوف كاشف الوجه على ويندوز (فتطلع أزرار الوجه)
           python -c "import json; d=json.load(open('info.json', encoding='utf-8')); print('platform', d.get('platform'), 'face', d.get('face')); assert d.get('face') is True"
+      - name: a studio with no pack (1.0.27) — the install makes no packs folder and lists none; a stand-in piece put in <data>/home/packs is read by the server, listed and its files served (only from inside it); once it goes, the studio lists none again
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          D="$HOME/Documents/video-edit/studio"
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          test ! -e "$D/home/packs" || { echo "FAILED: the install made $D/home/packs"; exit 1; }
+          test "$(curl -s -m 30 "${URL}api/packs")" = '{"pieces":[]}' || { echo "FAILED: a pack is listed with none installed"; exit 1; }
+          test "$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${URL}packs/demo/piece.mjs")" = 404
+          # a stand-in piece (generic: one template, its words, a file of its own)
+          mkdir -p "$D/home/packs/demo/fonts"
+          printf '%s\n' '{"id": "demo", "version": "1", "needs": "1.0.27", "name": {"ar": "تجربة", "en": "Demo"}}' > "$D/home/packs/demo/piece.json"
+          printf '%s\n' "export default function demo(api) { api.templates({ code: 'function draw(g, t, k) {}', defs: [{ id: 'demo-title', nameKey: 'x.demo.title', dur: 3, fields: [{ key: 'title', labelKey: 'tpl.f.title', max: 40 }] }] }); api.strings({ ar: { 'x.demo.title': 'تجربة' }, en: { 'x.demo.title': 'Demo' } }); }" > "$D/home/packs/demo/piece.mjs"
+          printf 'x' > "$D/home/packs/demo/fonts/demo.ttf"
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          curl -s -m 30 "${URL}api/packs" > packs.json
+          cat packs.json; echo
+          # used: the server imported it itself (a Windows path made a file URL)
+          python -c "import json; d=json.load(open('packs.json', encoding='utf-8')); assert [(p['id'], p['entry'], p['used']) for p in d['pieces']] == [('demo', '/packs/demo/piece.mjs', True)], d"
+          test "$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${URL}packs/demo/piece.mjs")" = 200
+          test "$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${URL}packs/demo/fonts/demo.ttf")" = 200
+          test "$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${URL}packs/demo/piece.json")" = 404
+          test "$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${URL}packs/demo/fonts/..%5C..%5Cpiece.json")" != 200
+          rm -rf "$D/home/packs"
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          test "$(curl -s -m 30 "${URL}api/packs")" = '{"pieces":[]}'
       - name: the window of its own (0.9.7), the browser for it is found, the app page is served, and it opens
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"
@@ -2300,7 +2329,7 @@ jobs:
           { grep '^\[export\] ' "$HOME/Documents/video-edit/studio/server.log" || true; } | tail -n 5
           grep -q '^\[export\] تصدير ويندوز كامل' "$HOME/Documents/video-edit/studio/server.log" || { echo "FAILED: no [export] line in the log during a 7-minute export"; exit 1; }
           taskkill //F //IM chrome.exe >/dev/null 2>&1 || true
-      - name: the writing templates and the wedding look (1.0.26) — a script line in Latin and in Arabic and the names, each in its own face (not a stand-in), black and white on a shot, «تصدير» pressed; the words in the file in their seconds, as wide as drawn and in the middle
+      - name: the writing templates (1.0.26; the four for everyone, 1.0.27) — a centred title in Latin and in Arabic and two names; with no pack the four only; «تصدير» pressed; the words in the file in their seconds, as wide as drawn and in the middle
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"
           URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
@@ -2308,7 +2337,7 @@ jobs:
           [ -d "$HOME/pp/node_modules/puppeteer-core" ] || npm install --prefix "$HOME/pp" --no-save --no-audit --no-fund puppeteer-core@25.11.0 >/dev/null
           ffmpeg -nostdin -v error -y -f lavfi -i "color=c=0x303845:s=540x960:r=30:d=16,format=yuv420p" -f lavfi -i "sine=f=330:d=16" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$HOME/tpl16.mp4"
           cat > "$HOME/templates_check.cjs" <<'JS'
-          // §84 on this machine: the ready templates drawn in their own faces, exported the way he exports.
+          // §84 on this machine: the four ready templates, exported the way he exports (no pack here: §88, the four only).
           // env: PP (puppeteer-core's folder), CHROME, URL (the running studio), VIDEO (the clip), NAME (its name), MCP (studio-mcp.mjs)
           const pptr = require(process.env.PP);
           const fs = require('node:fs');
@@ -2327,11 +2356,12 @@ jobs:
             const rpc = (method, params) => new Promise((r) => { id += 1; waiters.set(id, r); c.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); });
             return {
               hello: () => rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'windows-check', version: '0' } }),
+              list: () => rpc('tools/list', {}),
               async call(name, args) { const r = await rpc('tools/call', { name, arguments: args }); const content = (r.result && r.result.content) || []; return { text: content.filter((x) => x.type === 'text').map((x) => x.text).join('\n'), isError: !!(r.result && r.result.isError), log: err.slice(-800) }; },
               stop: () => c.kill(),
             };
           }
-          // the cream of the wedding look (#F7EEDD) in a frame of the file at t: its share and the columns it spans
+          // the light letters (the four write in the clip's caption colour, near white) in a frame of the file at t: their share and the columns they span
           function cream(file, t, W, H) {
             const rgb = spawnSync('ffmpeg', ['-v', 'error', '-ss', t.toFixed(3), '-i', file, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 64 << 20 }).stdout;
             if (!rgb || rgb.length < W * H * 3) throw new Error(`no frame at ${t} s`);
@@ -2343,7 +2373,7 @@ jobs:
             }
             return { share: n / (W * H), x0, x1, sat: sat / m };
           }
-          // the same cream in the drawing itself: frame n of the block file (its top half is the picture, cropped to box), in the
+          // the same light letters in the drawing itself: frame n of the block file (its top half is the picture, cropped to box), in the
           // video's own pixels → the columns the letters span (the box is wider: it holds their soft shadow too)
           function drawnCream(file, n, box) {
             const [bx, , bw, bh] = box;
@@ -2377,8 +2407,8 @@ jobs:
               const cut = await mcp.call('apply', { operations: [{ name: 'blade', args: { f: 240 } }], summary: 'two shots' });
               if (cut.isError || (await project()).spine.length !== 2) return fail(`the clip was not cut in two: ${cut.text}`);
               const placed = {};
-              // 1 the templates, each in its own face
-              for (const [k, args] of [['latin', { template: 'quote-script', text: { quote: 'Forever begins tonight' }, at: 0.5 }], ['names', { template: 'names-script', text: { a: 'Omar', b: 'Layla', date: '01 . 01 . 2027' }, at: 5 }], ['arabic', { template: 'quote-script', text: { quote: 'وبدأت الحكاية' }, at: 10.5 }]]) {
+              // 1 the templates
+              for (const [k, args] of [['latin', { template: 'center', text: { title: 'Forever begins tonight' }, at: 0.5 }], ['names', { template: 'names', text: { a: 'Omar', b: 'Layla', date: '01 . 01 . 2027' }, at: 5 }], ['arabic', { template: 'center', text: { title: 'وبدأت الحكاية' }, at: 10.5 }]]) {
                 const r = await mcp.call('title', args);
                 const item = (/item (x_\w+)/.exec(r.text) || [])[1];
                 console.log(`title ${k}:`, r.text.split('\n').filter((l) => !/^the video at/.test(l)).join(' | ').slice(0, 300));
@@ -2388,35 +2418,15 @@ jobs:
               let p = await project();
               const boxOf = (id) => { const it = p.attached.find((a) => a.id === id); return p.assets[it.asset].recipe.box; };
               const u = Math.min(p.width, p.height) / 1080;
-              // the stand-in is the template itself, drawn by draw from its own code (the installed templates.js) with its faces
-              // renamed to names no machine has: the same words, shadow, motion and box, so the two differ only if the template's
-              // own face reached its drawing (drawn in a stand-in face, the template would come out the stand-in's size)
-              const { templateCode } = await import(require('node:url').pathToFileURL(path.join(path.dirname(process.env.MCP), '..', 'public', 'js', 'gfx', 'templates.js')).href);
-              for (const [k, words] of [['latin', 'Forever begins tonight'], ['arabic', 'وبدأت الحكاية']]) {
-                const own = templateCode(), wrapper = 'function draw(g, t, k) { paintTemplate(g, t, k); }';
-                if (!own.includes(wrapper) || !own.includes('"Great Vibes"') || !own.includes('"Aref Ruqaa"')) return fail('the installed template code is not the one this check knows');
-                const code = own.replace(/"Great Vibes"/g, '"NoSuchScriptFaceAnywhere"').replace(/"Aref Ruqaa"/g, '"NoSuchRuqaaFaceAnywhere"')
-                  .replace(wrapper, `function draw(g, t, k) { k.template = 'quote-script'; k.fields = ${JSON.stringify({ quote: words })}; paintTemplate(g, t, k); }`);
-                const r = await mcp.call('draw', { name: `stand-in ${k}`, at: 15, dur: 4, code });
-                const item = (/item (x_\w+)/.exec(r.text) || [])[1];
-                if (r.isError || !item) return fail(`the stand-in drawing ${k}: ${r.text}`);
-                p = await project();
-                const [, , ow, oh] = boxOf(placed[k]), [, , sw, sh] = boxOf(item);
-                console.log(`${k}: drawn ${ow}×${oh} px in its own face, ${sw}×${sh} px the same template in a face this machine does not have`);
-                if (!(Math.abs(ow - sw) / sw > 0.08 || Math.abs(oh - sh) / sh > 0.08)) return fail(`${k}: the template is the size of the stand-in: its own face did not reach the drawing`);
-                const gone = await mcp.call('apply', { operations: [{ name: 'remove', args: { ids: [item] } }], summary: 'the stand-in goes' });
-                if (gone.isError) return fail(`the stand-in did not go: ${gone.text}`);
-              }
-              // 2 black and white on the first shot
-              const first = p.spine[0].id;
-              const bw = await mcp.call('black_white', { from: 0, to: 0.2 });
-              console.log('black_white:', bw.text.slice(0, 200));
-              if (bw.isError) return fail(`black_white: ${bw.text}`);
+              // 2 no pack on this machine (§88): nothing listed, the four only, no pack_action
+              const packs = (await call('/api/packs')).body;
+              console.log('/api/packs:', JSON.stringify(packs));
+              if (!packs || !Array.isArray(packs.pieces) || packs.pieces.length) return fail(`/api/packs lists a pack: ${JSON.stringify(packs)}`);
+              const listed = ((await mcp.list()).result || {}).tools || [];
+              const en = ((listed.find((x) => x.name === 'title') || {}).inputSchema || { properties: { template: {} } }).properties.template.enum;
+              if (listed.some((x) => x.name === 'pack_action') || JSON.stringify(en) !== JSON.stringify(['center', 'lower', 'names', 'quote'])) return fail(`the tools: pack_action ${listed.some((x) => x.name === 'pack_action')}, templates ${JSON.stringify(en)}`);
               mcp.stop();
               p = await project();
-              const gid = p.spine[0].grade, g = (p.grades || {})[gid] || {};
-              console.log('the first shot\'s grade:', JSON.stringify(g));
-              if (!(g.saturation === -100 && g.contrast === 30 && g.blacks === -22)) return fail('the measured black and white is not on the first shot');
               const ids = p.attached.map((a) => a.id);
               await until(() => hook((m, want) => want.every((id) => m.store.state.p.attached.some((a) => a.id === id)), ids), 60000, 'the templates on the page');
               // (NO_EXPORT: the Mac's run before the release, when exports wait: stops here)
@@ -2445,16 +2455,13 @@ jobs:
                 const it = p.attached.find((a) => a.id === placed[k]), d = drawnCream(path.join(dir, p.assets[it.asset].file), Math.round((f1 - f0) / 2), box);
                 const want = (d.x1 - d.x0 + 1) * sx, got = c.x1 - c.x0 + 1, centre = (c.x0 + c.x1) / 2 / W, shift = Math.abs(c.x0 - d.x0 * sx) / W;
                 console.log(`${k} at ${mid.toFixed(2)} s: cream ${(c.share * 100).toFixed(2)} %, letters ${got} px wide from ${c.x0} (drawn ${Math.round(want)} from ${Math.round(d.x0 * sx)}), centre ${(centre * 100).toFixed(1)} %`);
-                if (!(c.share > 0.001)) return fail(`${k}: the words are not in the file in their seconds`);
+                if (!(c.share > 0.0005)) return fail(`${k}: the words are not in the file in their seconds`);
                 if (Math.abs(centre - 0.5) > 0.04) return fail(`${k}: not in the middle`);
                 if (Math.abs(got - want) / want > 0.08) return fail(`${k}: not as wide as drawn (soft, or another face)`);
                 if (shift > 0.01) return fail(`${k}: not where it was drawn`);
               }
               const none = cream(file, 15.5, W, H);
-              if (none.share > 0.0005) return fail('cream where no template is');
-              const grey = cream(file, 0.05, W, H).sat, colour = cream(file, 15.5, W, H).sat;
-              console.log(`colour at the top of the frame: first shot ${grey.toFixed(1)}, last ${colour.toFixed(1)}`);
-              if (!(grey < 3 && colour > 8)) return fail('the first shot is not grey, or the last lost its colour');
+              if (none.share > 0.0005) return fail('light letters where no template is');
               await b.close();
               console.log('PASSED');
             } catch (e) { await fail(e && e.stack || e); }

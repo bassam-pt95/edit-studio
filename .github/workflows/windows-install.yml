@@ -844,6 +844,112 @@ jobs:
           console.log('PASSED');
           JS
           PERMIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/server/assistant/permit.mjs")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/gate26_check.mjs")"
+      - name: hidden characters, links out of a project, network folders, the transcription turn and the install's Python (1.0.28) — a link or a search holding a character that cannot be seen is refused; a junction out of a project is neither read, written nor copied into a series look; a graphic folder on another computer is dropped on import and never drawn from; the turn lives in the user's own folder; Codex's commands run in Windows' own sandbox at his level (GitHub #6); --no-python asks for no Python; the doctor checks the Python the studio transcribes with
+        run: |
+          A="$HOME/Documents/video-edit/studio/app/studio"
+          SK="$HOME/.claude/skills/edit-studio/scripts"
+          cat > "$HOME/guards28_check.mjs" <<'JS'
+          // the installed studio's own modules, on folders of this check's own (removed at the end): nothing here is run or sent
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import zlib from 'node:zlib';
+          import { pathToFileURL } from 'node:url';
+          const m = (f) => import(pathToFileURL(path.join(process.env.APP, f)).href);
+          const { decide } = await m('server/assistant/permit.mjs');
+          const { guardPath } = await m('server/http.mjs');
+          const { useLinksHome, noteLinkOut } = await m('server/links-out.mjs');
+          const { takeLook } = await m('server/series-look.mjs');
+          const { recipeDir } = await m('server/gfx.mjs');
+          const { openPortable, buildManifest, MANIFEST } = await m('server/portable.mjs');
+          const { sttLockFile, smallMachine } = await m('server/stt-lock.mjs');
+          const { codexAgentArgs } = await m('server/codex.mjs');
+          // a zip written byte by byte (stored), as the studio's own tests write one
+          const zip = (entries) => {
+            const parts = [], central = []; let off = 0;
+            for (const e of entries) {
+              const name = Buffer.from(e.name), data = Buffer.from(e.data ?? ''), crc = zlib.crc32(data);
+              const l = Buffer.alloc(30); l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(20, 4); l.writeUInt32LE(crc, 14); l.writeUInt32LE(data.length, 18); l.writeUInt32LE(data.length, 22); l.writeUInt16LE(name.length, 26);
+              const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE((3 << 8) | 20, 4); c.writeUInt16LE(20, 6); c.writeUInt32LE(crc, 16); c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(name.length, 28);
+              c.writeUInt32LE(((e.name.endsWith('/') ? 0o040755 : 0o100644) << 16) >>> 0, 38); c.writeUInt32LE(off, 42);
+              parts.push(l, name, data); central.push(c, name); off += 30 + name.length + data.length;
+            }
+            const cd = Buffer.concat(central), end = Buffer.alloc(22);
+            end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16);
+            return Buffer.concat([...parts, cd, end]);
+          };
+          const T = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'guards28-')));
+          let bad = 0;
+          const say = (ok, what) => { console.log(ok ? '✓' : '✗', what); if (!ok) bad++; };
+          try {
+            // a link or a search holding a character that cannot be seen: refused at every level, with no card
+            say(decide('all', 'WebFetch', { url: `https://example.com/${String.fromCodePoint(0xE0041)}` }).refuse === 'unseen', 'a link holding a tag character is refused, even at «all»');
+            say(decide('all', 'WebSearch', { query: 'a\u2028b' }).refuse === 'unseen', 'a search holding a line separator is refused');
+            say(decide('all', 'WebSearch', { query: 'باب' }).allow === true, 'a plain search passes at «all»');
+            // a junction out of a project (no admin rights needed): neither read nor written through, unless the studio made the link
+            const proj = path.join(T, 'proj'), out = path.join(T, 'outside'), home = path.join(T, 'home');
+            for (const d of [path.join(proj, 'media'), out, home]) fs.mkdirSync(d, { recursive: true });
+            fs.writeFileSync(path.join(out, 'a.mp4'), 'x'); fs.writeFileSync(path.join(proj, 'media', 'own.mp4'), 'x');
+            fs.symlinkSync(out, path.join(proj, 'media', 'fx'), 'junction');
+            useLinksHome(home);
+            say(guardPath(proj, 'media/own.mp4') === path.join(proj, 'media', 'own.mp4'), 'a file of the project is found');
+            say(guardPath(proj, 'media/fx/a.mp4') === null, 'a file through a junction out of the project is refused');
+            say(guardPath(proj, 'media/fx/new.wav') === null, 'nor written through it');
+            noteLinkOut(path.join(out, 'a.mp4'));
+            say(guardPath(proj, 'media/fx/a.mp4') !== null, 'a file the studio linked itself is found');
+            useLinksHome(null);
+            // «اعتمد شكله للسلسلة» takes plain files of the project only: a fonts junction out of it is not copied
+            const lib = path.join(T, 'lib'), clip = path.join(lib, 'clip'), other = path.join(T, 'other');
+            for (const d of [path.join(clip, 'media'), other]) fs.mkdirSync(d, { recursive: true });
+            fs.writeFileSync(path.join(other, 'not-yours.ttf'), 'X');
+            fs.symlinkSync(other, path.join(clip, 'fonts'), 'junction');
+            takeLook(lib, 'f_check28a', { folder: 'clip', dir: clip, p: { name: 'c', width: 1080, height: 1920, assets: {}, tracks: [], meta: {} } });
+            const look = path.join(lib, '.mohrer', 'series', 'f_check28a');
+            say(fs.existsSync(look) && !fs.readdirSync(look, { recursive: true }).map(String).some((f) => f.includes('not-yours')), 'a series look copies nothing through a junction');
+            // a graphic folder on another computer of the network: dropped to its bare name on import, never drawn from (not even looked at)
+            for (const dir of ['\\\\server\\share\\work', '\\\\?\\UNC\\server\\share\\work']) {
+              say(recipeDir({ engine: 'command', dir, layer: 1 }) === null, `not drawn from: ${dir}`);
+              const p = { format: 'mohrer-project', version: 2, name: 'مستورد', fps: [30, 1], width: 1080, height: 1920, luts: {}, grades: {}, color: { display: null, sourceDefault: {} },
+                assets: { a_v: { kind: 'video', file: 'media/v.mp4', master: 'media/v.mp4', dur: 4, fps: [30, 1], recipe: { engine: 'command', dir, layer: 1 } } },
+                spine: [{ id: 'c_1', asset: 'a_v', in: 0, dur: 30 }], attached: [], captions: { sentences: [], words: [] }, meta: {} };
+              const files = [{ name: 'project.json', data: JSON.stringify(p) }, { name: 'media/v.mp4', data: 'VIDEO-BYTES' }];
+              const mf = buildManifest({ name: 'مستورد', files: files.map((f) => ({ path: f.name, bytes: Buffer.byteLength(f.data) })), app: 2 });
+              const at = fs.mkdtempSync(path.join(T, 'unc-')), root = path.join(at, 'root');
+              fs.mkdirSync(root, { recursive: true });
+              fs.writeFileSync(path.join(at, 'in.zip'), zip([{ name: 'P/' }, { name: `P/${MANIFEST}`, data: JSON.stringify(mf) }, ...files.map((f) => ({ ...f, name: `P/${f.name}` }))]));
+              const o = await openPortable({ file: path.join(at, 'in.zip'), root, work: path.join(root, '.mohrer', 'tmp', 'unpack-1-aa'), taken: () => false });
+              const kept = JSON.parse(fs.readFileSync(path.join(o.dir, 'project.json'), 'utf8')).assets.a_v.recipe.dir;
+              say(kept === 'work', `imported as its bare name: ${dir} → ${kept}`);
+            }
+            // one transcription at a time on this computer: the turn in the user's own folder, the same for every studio here
+            const lock = sttLockFile();
+            say(lock.startsWith(os.homedir() + path.sep) && !lock.includes(`${path.sep}video-edit${path.sep}`), `the transcription turn: ${lock}`);
+            say(smallMachine(8 * 2 ** 30) && !smallMachine(16 * 2 ** 30), `a computer of 8 GB or less waits its turn for a voice note (this one: ${Math.round(os.totalmem() / 2 ** 30)} GB)`);
+            // the assistant on Codex (GitHub #6): its commands in Windows' own sandbox with no admin rights, at his level, never the whole machine
+            // (this machine cannot sign in to Codex: the settings it is started with are what is checked)
+            const work = path.join(T, 'work');
+            for (const level of ['ask', 'studio']) for (const session of [null, 's1']) {
+              const a = codexAgentArgs({ level, session, project: path.join(T, 'proj'), roots: [work], work });
+              say(a.includes('windows.sandbox="unelevated"') && a.includes('approval_policy="never"') && !a.join(' ').includes('danger-full-access'),
+                `Codex at «${level}»${session ? ' (resumed)' : ''}: Windows' sandbox, no approval prompt, not the whole machine`);
+            }
+          } finally { fs.rmSync(T, { recursive: true, force: true }); }
+          if (bad) { console.error(`FAILED: ${bad}`); process.exit(1); }
+          console.log('PASSED');
+          JS
+          APP="$(cygpath -w "$A")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/guards28_check.mjs")"
+          # --no-python asks for no Python: setup.sh's own check with no Python found at all
+          FN="$(sed -n '/^tools_check(){/,/^}/p' "$SK/setup.sh")"
+          [ -n "$FN" ] || { echo "no tools_check in setup.sh"; exit 1; }
+          M="$(bash -c 'find_node(){ echo node; }; node_major(){ echo 22; }; resolve_pybin(){ PYBIN=""; }; mac_pybin(){ return 1; }; OS=win; WITH_PY=0; eval "$1"; tools_check; printf "%s|" "${MISS[@]}"' _ "$FN")"
+          [ "$M" = '|' ] && echo "✓ --no-python asks for no Python" || { echo "✗ --no-python still asks for: $M"; exit 1; }
+          # the doctor checks the transcriber in the Python the studio transcribes with (tools/stt-python.mjs, the same choice)
+          SPY="$(bash -c '. "$1/_common.sh" && node "$(cygpath -w "$2")"' _ "$SK" "$A/tools/stt-python.mjs" | tr -d '\r')"
+          echo "the studio transcribes with: ${SPY:-none}"
+          D="$(bash "$SK/doctor.sh" 2>&1 || true)"
+          printf '%s\n' "$D" | grep 'أداة التفريغ' || true
+          if [ -n "$SPY" ]; then printf '%s\n' "$D" | grep 'مع أداة التفريغ' | grep -qF "$SPY" && echo "✓ the doctor checked $SPY" || { echo "✗ the doctor did not check $SPY"; exit 1; }
+          else echo "– no Python here has the transcriber: nothing to compare"; fi
       - name: a project's thumbnail is only a picture, and «أوقف» ends only what the studio started (1.0.26)
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"

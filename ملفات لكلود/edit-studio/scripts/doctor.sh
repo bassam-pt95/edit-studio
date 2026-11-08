@@ -57,6 +57,12 @@ STT_MOD=mlx_whisper; [ "$OS" = win ] && STT_MOD=faster_whisper
 MAC_VENV=0; [ "$OS" = mac ] && "$MPY" -c 'import sys' </dev/null >/dev/null 2>&1 && { MAC_VENV=1; PYBIN="$MPY"; }
 # فاحص نموذج التفريغ: جنب الاستوديو بالحزمة وبعد التثبيت، ومن المستودع بـv2/tools
 FETCH="$PKG_DIR/studio/tools/np/model_fetch.py"; [ -f "$FETCH" ] || FETCH="$PKG_DIR/../../tools/np/model_fetch.py"
+# (1.0.28) أداة التفريغ تنفحص على البايثون اللي يفرّغ فيه الاستوديو نفسه (tools/stt-python.mjs: نفس اختيار تفريغ المقطع ونفس ترتيب
+# الملاحظة الصوتية، وأوله بايثون مهارة المونتاج اللي يحطه _common.sh)، مو على بايثون المونتاج لحاله: قبل كان يطلع ✗ والتفريغ شغال على python3
+STT_TOOL="$PKG_DIR/studio/tools/stt-python.mjs"; [ -f "$STT_TOOL" ] || STT_TOOL="$PKG_DIR/../../tools/stt-python.mjs"
+SPY=""; [ -n "$NODE" ] && [ -f "$STT_TOOL" ] && SPY="$("$NODE" "$STT_TOOL" 2>/dev/null </dev/null | tr -d '\r' | head -1)"
+# ويندوز: node يطبع المسار بصيغة ويندوز، وبايثون الفحص بصيغة Git Bash (عشان المقارنة والتشغيل تحت)
+[ "$OS" = win ] && [ -n "$SPY" ] && SPY="$(cygpath -u "$SPY" 2>/dev/null || printf '%s' "$SPY")"
 # ويندوز: التفريغ على كرت NVIDIA يحتاج cuBLAS 12 (ctranslate2 ما يجيبه)، وfaster-whisper 1.2 ما يشتغل مع PyAV 15 واحدث.
 # بايثون لحاله (لو طاح بسبب DLL ما يطيح التقرير)، ومجلدات nvidia/*/bin قبل البحث مثل التفريغ نفسه (_whisper.py بمهارة المونتاج).
 # يطبع: نسخة PyAV، نسخة ctranslate2، عدد كروت CUDA، 1 لو الكرت يدعم float16، 1 لو cuBLAS يشتغل على الكرت، مكان cuBLAS (او -).
@@ -103,7 +109,15 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
   if win_arm && [ "$("$PYBIN" -c 'import platform;print(platform.machine())' 2>/dev/null | tr -d '\r')" = ARM64 ]; then
     bad "Python $PV نسخة ARM64: كاشف الوجه والتفريغ ما ينركبون عليه. ركب Python 3.12 نسخة x64 وبعدها شغل تجهيز مهارة المونتاج (00_setup.sh --install)"
   fi
-  if "$PYBIN" -c "import $STT_MOD" 2>/dev/null; then
+  # (1.0.28) الاستوديو يفرّغ على بايثون ثاني (بايثون المونتاج ما فيه الاداة): الفحص على اللي يشتغل، وكاشف الوجه يبقى على حقه
+  FACE_PY="$PYBIN"; OTHER_STT=0
+  if [ -n "$SPY" ] && [ "$SPY" != "$PYBIN" ]; then
+    PYBIN="$SPY"; OTHER_STT=1; PV="$("$PYBIN" -c 'import platform;print(platform.python_version())' 2>/dev/null | tr -d '\r')"; [ "$OS" = win ] && PV="$PV ($(cygpath -w "$PYBIN"))"
+  fi
+  # (1.0.28) الماك: faster_whisper يكفي بعد زي ما يكفي للاستوديو (tools/new-project.mjs STT_PROBE)، مو mlx_whisper بس
+  STT_HAS="import $STT_MOD"; [ "$OS" = mac ] && STT_HAS="import importlib.util as u, sys; sys.exit(0 if (u.find_spec('mlx_whisper') or u.find_spec('faster_whisper')) else 1)"
+  if "$PYBIN" -c "$STT_HAS" 2>/dev/null; then
+    [ $OTHER_STT = 1 ] && [ $MAC_VENV = 1 ] && warn "بايثون مهارة المونتاج ما فيه أداة التفريغ، والاستوديو يفرّغ على Python $PV: setup.sh --install يركّبها هناك"
     # النموذج بنفس فحص الاستوديو والتثبيت (model_fetch.py --has: محرك هالبايثون وملفاته كاملة)، مو اسم المجلد: تنزيل انقطع يخلي مجلد فاضي
     MODEL_OK=0; "$PYBIN" "$FETCH" --has </dev/null >/dev/null 2>&1 && MODEL_OK=1
     if [ $MODEL_OK = 1 ]; then ok "Python $PV مع أداة التفريغ ونموذجها"
@@ -139,6 +153,7 @@ if command -v "$PYBIN" >/dev/null 2>&1; then
     if [ "${PM:-0}" -ge 15 ] 2>/dev/null; then bad "Python $PV أحدث مما تعمل عليه أدوات التفريغ وتنظيف الصوت (3.12 إلى 3.14): شغّل setup.sh --install ليثبّت Python 3.14"
     else bad "Python $PV أقدم مما تعمل عليه أدوات التفريغ وتنظيف الصوت (3.12 إلى 3.14): شغّل setup.sh --install ليثبّت Python 3.14"; fi
   else bad "Python $PV بلا أداة التفريغ (يثبّتها تجهيز مهارة المونتاج)"; fi
+  PYBIN="$FACE_PY"
   # كاشف الوجه: الماك عنده حقه، وويندوز يستخدم mediapipe (مكان فاضي، الكابشن والوجه، وسّط الوجه)
   if [ "$OS" = win ]; then
     # الكاشف نفسه ينحمل (FaceDetection)، مو بس الاستيراد: من مسار فيه حروف غير انجليزية mediapipe يستورد وما يلقى ملفات الكاشف

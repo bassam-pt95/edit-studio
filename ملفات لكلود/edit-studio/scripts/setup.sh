@@ -36,10 +36,12 @@ NODE="$(find_node)"; NV=0; [ -n "$NODE" ] && NV="$(node_major "$NODE")"
 [ -n "$NODE" ] || MISS+=("Node")
 command -v ffmpeg >/dev/null 2>&1 || MISS+=("ffmpeg")
 command -v ffprobe >/dev/null 2>&1 || MISS+=("ffprobe")
-if [ "$OS" = win ]; then resolve_pybin; [ -n "$PYBIN" ] || MISS+=("Python")   # ويندوز: اختصار المتجر ما ينحسب بايثون
+# (1.0.28) --no-python: بايثون ما ينطلب هنا (ما بيتركب شي عليه)، والتشخيص بالآخر يقول وش عنده. قبل كان يوقف على «Python 3.12 إلى 3.14»
+# حتى مع --no-python --no-montage، وجهاز ما فيه الا بايثون ابل 3.9 اضطر يركّب 3.14
+if [ "$OS" = win ]; then resolve_pybin; [ -n "$PYBIN" ] || [ $WITH_PY -eq 0 ] || MISS+=("Python")   # ويندوز: اختصار المتجر ما ينحسب بايثون
 else
 # الماك: من جديد بعد تجهيز المونتاج (ممكن نزّل بايثون Homebrew للتو)، ومن 3.12 إلى 3.14 بس (py_fits)
-if [ "$OS" = mac ]; then mac_pybin || MISS+=("Python 3.12 إلى 3.14"); else command -v "$PYBIN" >/dev/null 2>&1 || MISS+=("Python"); fi
+if [ "$OS" = mac ]; then mac_pybin || [ $WITH_PY -eq 0 ] || MISS+=("Python 3.12 إلى 3.14"); else command -v "$PYBIN" >/dev/null 2>&1 || [ $WITH_PY -eq 0 ] || MISS+=("Python"); fi
 fi
 }
 tools_check

@@ -2843,6 +2843,50 @@ jobs:
           grep -Eq 'فك الفيديو: hevc/yuv420p10le/1920x1080/r0 ← (المعالج|يتجرّب بالتصدير)' "$KW/doc.txt" || { echo 'FAILED: the doctor does not say the choice'; rc=1; }
           rm -rf "$KW"
           exit $rc
+      - name: «تصوير بس» at the start, and a flash named (1.0.30) — «مقطع جديد» answered «تصوير بس» at 23.976 makes a footage-only project at 23.976 from a 30 fps clip, a rate it does not offer leaves the files' own; the export's cut check names one white frame inside the shot
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          KW="$HOME/kit-130"; rm -rf "$KW"; mkdir -p "$KW"
+          ffmpeg -nostdin -v error -y -f lavfi -i 'testsrc2=size=320x180:rate=30' -f lavfi -i 'sine=f=330' -t 3 -vf "drawbox=x=0:y=0:w=320:h=180:color=white:t=fill:enable='eq(n,40)'" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$KW/flash.mp4"
+          cat > "$HOME/footage130.cjs" <<'JS'
+          // SPEC-v2 §94 on the studio as installed. env: URL, CLIP, NAME
+          const url = process.env.URL.replace(/\/+$/, '');
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const call = async (p, body) => { const r = await fetch(url + p, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+          const fail = (why) => { console.error('FAILED:', why); process.exit(1); };
+          async function make(name, extra) {
+            const st = await call('/api/raw/start', { path: process.env.CLIP, name, mode: 'manual', face: 'none', ...extra });
+            if (st.status !== 202 || !st.body.folder) fail(`${name} did not start: ${JSON.stringify(st)}`);
+            const folder = st.body.folder;
+            for (let i = 0; ; i++) {
+              const e = ((await call('/api/projects')).body.projects || []).find((p) => p.folder === folder);
+              if (e && e.status !== 'preparing' && e.phase !== 'running') break;
+              if (i > 600) fail(`${name} never got ready`);
+              await sleep(500);
+            }
+            return { folder, p: (await call(`/x/${encodeURIComponent(folder)}/api/project`)).body.project };
+          }
+          (async () => {
+            const a = await make(process.env.NAME, { footageOnly: true, fps: '24000/1001' });
+            console.log(`«تصوير بس» 23.976: project ${a.p.fps.join('/')}, footage only ${!!(a.p.meta && a.p.meta.footageOnly)}`);
+            if (a.p.fps.join('/') !== '24000/1001' || !(a.p.meta && a.p.meta.footageOnly === true)) fail('not a footage-only project at 23.976');
+            const b = await make(`${process.env.NAME} 2`, { footageOnly: true, fps: '17/1' });
+            console.log(`a rate it does not offer: project ${b.p.fps.join('/')}`);
+            if (b.p.fps.join('/') !== '30/1') fail('a rate it does not offer changed the project');
+            console.log(`CUTDIR=${b.folder}`);
+            console.log('PASSED');
+          })().catch((e) => fail(e && e.stack || e));
+          JS
+          URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
+          rc=0
+          OUT="$(URL="$URL" CLIP="$(cygpath -w "$KW/flash.mp4")" NAME='تصوير بس' PYTHONIOENCODING=utf-8 node "$HOME/footage130.cjs")" || rc=1
+          printf '%s\n' "$OUT"
+          F="$(printf '%s\n' "$OUT" | sed -n 's/^CUTDIR=//p')"
+          # the cut check on the 30 fps one (its own rate keeps every frame): the white frame at 1.333 s is named
+          node "$HOME/Documents/video-edit/studio/app/studio/tools/cutcheck.mjs" "$(cygpath -w "$HOME/Documents/video-edit/studio/projects/$F")" "$(cygpath -w "$KW/flash.mp4")" --out "$(cygpath -w "$KW/cuts")" > "$KW/cuts.out" || rc=1
+          cat "$KW/cuts.out"; echo
+          python -c "import json,sys; d=json.load(open(sys.argv[1], encoding='utf-8')); t=[x['t'] for x in d['flashes']]; print('flashes', t); sys.exit(0 if len(t) == 1 and abs(t[0] - 40/30) < 0.05 else 1)" "$(cygpath -w "$KW/cuts/cuts.json")" || rc=1
+          exit $rc
       - name: a chat edits the main video, then the export (1.0.26) — «ستّيني» keeps its shadda on NTFS; frame and strip with no page open; «changed nothing» with why; a new video appended and another put in a clip; a punch-in with no face; a clip muted and one reversed by its id; «تصدير» pressed — the shadda in the file's name, the reversed frames backwards one by one, the muted seconds silent, the frozen check passed
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"

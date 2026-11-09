@@ -2757,6 +2757,92 @@ jobs:
           URL="$URL" KIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/frame-kit.mjs")" WORK="$(cygpath -w "$KW")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/kit_log.cjs")"; rc=$?
           rm -rf "$KW"
           exit $rc
+      - name: real frames (1.0.29) — a 59.94 10-bit frame-coded clip through «مقطع جديد» makes a 29.97 project; by default Windows copies it at 29.97 as before (decision 3); with MOHRER_REAL_FRAMES=1 it is linked at 59.94 (engine 2, no media/conf, its preview copy at 59.94) and the export's reader gives every frame of the camera file back by its number
+        run: |
+          S="$HOME/Documents/video-edit/studio/app/scripts"
+          KW="$HOME/kit-129"; rm -rf "$KW"; mkdir -p "$KW"
+          cat > "$HOME/real_frames.cjs" <<'JS'
+          // SPEC-v2 §90 on the studio as installed. env: URL, KIT (tools/frame-kit.mjs), WORK, MODE (copy | real), NAME
+          const fs = require('node:fs'), path = require('node:path'), { pathToFileURL } = require('node:url');
+          const url = process.env.URL.replace(/\/+$/, ''), W = process.env.WORK, mode = process.env.MODE;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const call = async (p, body) => { const r = await fetch(url + p, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+          const fail = (why) => { console.error('FAILED:', why); process.exit(1); };
+          (async () => {
+            const kit = await import(pathToFileURL(process.env.KIT).href);
+            const c = kit.makeClip({ out: path.join(W, `pocket_${mode}.mov`), fps: '60000/1001', bits: 10, secs: 3, size: '360x640' });
+            const t0 = Date.now();
+            const st = await call('/api/raw/start', { path: c.file, name: process.env.NAME, mode: 'full', face: 'none' });
+            if (st.status !== 202 || !st.body.folder) return fail(`the clip did not start: ${JSON.stringify(st)}`);
+            const folder = st.body.folder, x = `/x/${encodeURIComponent(folder)}`;
+            for (let i = 0; ; i++) {
+              const e = ((await call('/api/projects')).body.projects || []).find((p) => p.folder === folder);
+              if (e && e.status !== 'preparing' && e.phase !== 'running') break;
+              if (i > 600) return fail('the clip never got ready');
+              await sleep(500);
+            }
+            const p = (await call(`${x}/api/project`)).body.project, a = p.assets.a_src;
+            console.log(`${mode}: in ${((Date.now() - t0) / 1000).toFixed(1)} s, project ${p.fps.join('/')}, asset ${a.fps.join('/')}${a.engine ? ' engine 2' : ''}${a.pfps ? ` copy ${a.pfps.join('/')}` : ''}, master ${a.master}`);
+            if (p.fps.join('/') !== '30000/1001') return fail(`the project is ${p.fps.join('/')}, not 29.97 (slow-motion rates count as their half)`);
+            if (mode === 'copy') {
+              if (a.engine || a.fps.join('/') !== '30000/1001' || !/media\/conf\//.test(a.master)) return fail('Windows did not copy it at the project\'s rate');
+            } else {
+              if (a.engine !== 2 || a.fps.join('/') !== '60000/1001' || a.pfps || /media\/conf\//.test(a.master)) return fail('the camera file did not keep its frames');
+              // the export's reader on this machine's ffmpeg: footage frame n of the camera file, by its number, at 59.94
+              let right = 0;
+              for (let n = 0; n < c.frames; n++) {
+                const r = await fetch(`${url}${x}/api/still?asset=a_src&n=${n}`);
+                const w = Number(r.headers.get('x-w')), h = Number(r.headers.get('x-h')), fmt = r.headers.get('x-format') || '', deep = /16/.test(fmt);
+                const b = Buffer.from(await r.arrayBuffer()), px = fmt === 'rgb16' ? 6 : deep ? 8 : 4;   // rgba8 | rgba16 | rgb16
+                const luma = (X, Y) => { const i = (Y * w + X) * px; const v = deep ? [b.readUInt16LE(i) / 257, b.readUInt16LE(i + 2) / 257, b.readUInt16LE(i + 4) / 257] : [b[i], b[i + 1], b[i + 2]]; return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+                const got = kit.readIndex(luma, w, h);
+                if (got.index === n && !got.blended) right++;
+                else if (n - right < 3) console.log(`frame ${n}: read ${got.blended ? `a blend ${got.pair}` : got.index}`);
+              }
+              console.log(`the reader: ${right} of ${c.frames} footage frames by their number`);
+              if (right !== c.frames) return fail(`${right} of ${c.frames}`);
+            }
+            console.log('PASSED');
+          })().catch((e) => fail(e && e.stack || e));
+          JS
+          run() { URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')" KIT="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio/tools/frame-kit.mjs")" WORK="$(cygpath -w "$KW")" MODE="$1" NAME="$2" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$HOME/real_frames.cjs")"; }
+          rc=0
+          run copy 'سرعات ويندوز' || rc=1
+          # the real frames on Windows: the studio started again with the switch, then as it was for the steps after this one
+          bash "$S/studio.sh" stop
+          MOHRER_REAL_FRAMES=1 bash "$S/start.sh" --no-open
+          run real 'إطارات حقيقية' || rc=1
+          bash "$S/studio.sh" stop
+          bash "$S/start.sh" --no-open
+          # GitHub #7: the decoder chosen on this machine (no graphics card here: each card path this ffmpeg lists is byte-checked;
+          # the CPU kept, or a trial left to the exports) and the doctor's line says it
+          DH="$KW/home"; mkdir -p "$DH"
+          ffmpeg -nostdin -v error -y -f lavfi -i 'testsrc2=size=1920x1080:rate=30' -t 1 -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -x265-params log-level=error -tag:v hvc1 "$KW/d.mov" || rc=1
+          cat > "$HOME/decode_choice.mjs" <<'JS'
+          // env: APP (the installed studio), DIR (the clip's folder), HOME_DIR (an empty studio home)
+          import path from 'node:path'; import fs from 'node:fs'; import { pathToFileURL } from 'node:url';
+          const load = (f) => import(pathToFileURL(path.join(process.env.APP, f)).href);
+          const { makeDecodeChoice, ffmpegHwaccels } = await load('server/decode-choice.mjs');
+          const { readerArgs } = await load('server/export.mjs');
+          const { probe } = await load('server/probe.mjs');
+          const dir = process.env.DIR, info = await probe(path.join(dir, 'd.mov'));
+          const a = { kind: 'video', file: 'd.mov', master: 'd.mov', fps: [30, 1], bits: 10, range: 'tv' };
+          const t0 = Date.now();
+          const pick = await makeDecodeChoice({ home: process.env.HOME_DIR, env: {} }).choose({ file: path.join(dir, 'd.mov'), stream: 0,
+            info: { codec: info.codec, pixFmt: info.pixFmt, w: info.w, h: info.h, rotate: info.rotate }, argsFor: (hw) => readerArgs({ fps: [30, 1] }, dir, a, 1, hw, true).args, parts: 2 });
+          const kept = JSON.parse(fs.readFileSync(path.join(process.env.HOME_DIR, 'decode.json'), 'utf8'));
+          console.log(`hwaccels: ${(await ffmpegHwaccels()).join(', ') || 'none'}; measured in ${((Date.now() - t0) / 1000).toFixed(1)} s: ${JSON.stringify(Object.values(kept.kinds)[0])} → ${pick}`);
+          // no card here: the CPU, or (a card path ffmpeg lists whose decode fell back to the CPU, the same bytes) a trial
+          // decided inside the exports; never a card chosen without its exports
+          const kp = Object.values(kept.kinds)[0].path;
+          if (!['cpu', 'trial'].includes(kp)) { console.error(`FAILED: ${kp} kept without an export`); process.exit(1); }
+          console.log('PASSED');
+          JS
+          APP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio")" DIR="$(cygpath -w "$KW")" HOME_DIR="$(cygpath -w "$DH")" node "$(cygpath -w "$HOME/decode_choice.mjs")" || rc=1
+          { MOHRER_HOME="$DH" bash "$S/doctor.sh" 2>&1 || true; } | { grep 'فك الفيديو' || true; } | tee "$KW/doc.txt"
+          grep -Eq 'فك الفيديو: hevc/yuv420p10le/1920x1080/r0 ← (المعالج|يتجرّب بالتصدير)' "$KW/doc.txt" || { echo 'FAILED: the doctor does not say the choice'; rc=1; }
+          rm -rf "$KW"
+          exit $rc
       - name: a chat edits the main video, then the export (1.0.26) — «ستّيني» keeps its shadda on NTFS; frame and strip with no page open; «changed nothing» with why; a new video appended and another put in a clip; a punch-in with no face; a clip muted and one reversed by its id; «تصدير» pressed — the shadda in the file's name, the reversed frames backwards one by one, the muted seconds silent, the frozen check passed
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"

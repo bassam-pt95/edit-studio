@@ -48,6 +48,13 @@ if [ "$OS" = win ] && GQ="$(nvidia-smi --query-gpu=name,driver_version,compute_c
   fi
 fi
 
+# فك الفيديو بالتصدير (1.0.29، GitHub #7): الاستوديو يقيس بنفسه على كل نوع تصوير (المعالج والكرت) ويختار الأسرع اللي يطلع نفس الإطارات.
+# هنا بس نعرض اللي اختاره (<home>/decode.json)؛ ما يقيس شي
+DEC="${MOHRER_HOME:-$DATA/home}/decode.json"
+if [ -f "$DEC" ] && command -v node >/dev/null 2>&1; then
+  node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const ks=Object.entries(j.kinds||{});if(!ks.length)process.exit(1);for(const [k,v] of ks){const ms=Object.entries(v.ms||{}).filter(([,x])=>x).map(([p,x])=>p+" "+x).join("، ");console.log(k+" ← "+(v.path==="cpu"?"المعالج":v.path==="trial"?"يتجرّب بالتصدير (المعالج والكرت "+v.card+")":"الكرت ("+v.path+")")+(ms?" ("+ms+" ملّي ثانية)":"")+(v.failed?"، الكرت فشل مرة":""))}' "$(wp "$DEC")" 2>/dev/null | while IFS= read -r l; do ok "فك الفيديو: $l"; done
+else ok "فك الفيديو: يتقاس أول تصدير لكل نوع تصوير (المعالج والكرت، ويختار الأسرع بنفس الإطارات)"; fi
+
 # Python + التفريغ (مهارة المونتاج)
 # أداة التفريغ: mlx_whisper على ماك أبل، faster_whisper على ويندوز (نفس اللي يثبّته تجهيز مهارة المونتاج)
 STT_MOD=mlx_whisper; [ "$OS" = win ] && STT_MOD=faster_whisper

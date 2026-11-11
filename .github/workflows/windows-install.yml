@@ -242,7 +242,8 @@ jobs:
           D="$HOME/Documents/video-edit/studio"
           URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
           test ! -e "$D/home/packs" || { echo "FAILED: the install made $D/home/packs"; exit 1; }
-          test "$(curl -s -m 30 "${URL}api/packs")" = '{"pieces":[]}' || { echo "FAILED: a pack is listed with none installed"; exit 1; }
+          # [1.0.31] the list names the pieces left out too (skipped, with why): none installed, both empty
+          test "$(curl -s -m 30 "${URL}api/packs")" = '{"pieces":[],"skipped":[]}' || { echo "FAILED: a pack is listed with none installed"; exit 1; }
           test "$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${URL}packs/demo/piece.mjs")" = 404
           # a stand-in piece (generic: one template, its words, a file of its own)
           mkdir -p "$D/home/packs/demo/fonts"
@@ -264,7 +265,7 @@ jobs:
           bash "$S/studio.sh" stop
           bash "$S/start.sh" --no-open
           URL="$(bash "$S/studio.sh" status | sed -n 's/^running: //p')"
-          test "$(curl -s -m 30 "${URL}api/packs")" = '{"pieces":[]}'
+          test "$(curl -s -m 30 "${URL}api/packs")" = '{"pieces":[],"skipped":[]}'
       - name: the window of its own (0.9.7), the browser for it is found, the app page is served, and it opens
         run: |
           S="$HOME/Documents/video-edit/studio/app/scripts"
@@ -561,7 +562,8 @@ jobs:
               const errors = [];
               page.on('pageerror', (e) => errors.push(e.message));
               const puts = [];
-              page.on('response', (r) => { try { if (r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/api/undo')) puts.push(r.status()); } catch { /* closed */ } });
+              // [1.0.31] the history's designed answers («the project moved on») are 200 {ok: false}: counted as that, not as a save
+              page.on('response', (r) => { try { if (r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/api/undo')) { const st = r.status(); if (st !== 200) puts.push(st); else r.json().then((b) => puts.push(b && b.ok === false ? `${st}:${b.error}` : st), () => puts.push(st)); } } catch { /* closed */ } });
               const hook = (fn, ...a) => page.evaluate(`(${fn})(window.__mohrer, ...${JSON.stringify(a)})`);
               const open = async () => {
                 await page.goto(`${url}/?p=${encodeURIComponent(folder)}&test=1`, { waitUntil: 'domcontentloaded' });

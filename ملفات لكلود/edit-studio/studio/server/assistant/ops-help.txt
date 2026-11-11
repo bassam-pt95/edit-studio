@@ -46,11 +46,12 @@ moveItems: {ids, dFrames, dRow?}: groups expand; locked items refuse to move in 
 nudge: {ids, d}: attached → moveItems; words → moveWords by d frames; spine → err.nudgeMain. Coalesce at the caller (600 ms).
 replaceAsset: {id, asset, data?, in?}: another file for the same clip; timing and transform stay. A clip of the main video too (§82.5): its in, length (shorter when the new footage is), transform, speed and colour stay; refused with its reason when its voice is detached (re
 setBehind: {ids, on}: the picture, drawn graphic or title stands behind the person (between the room and him: the studio cuts him out with his matte, his colour stays the clip's) or in front again. Pictures, drawn blocks and added videos only.
+setImageSound: [1.0.31, audit item 12] {on}: «صوت مع الصور» in «الصوت». Off keeps the sound it was (defaults.imageSoundWas) so on brings it back; on with none ever set changes nothing. One step.
 setProjectAudio: [add] {patch} with keys 'voice.locked', 'voice.gain', 'sounds.gain' (dB, −30…+6: outside it nothing changes and it says the limit) — the project audio tab (§18.3). Locking resets the voice gain and every spine clip gain to 0 (§18.2); voice gain is refused whil
 setProps: {ids, patch}: dotted paths, e.g. {'audio.gain': -6, 'audio.mute': true, 'tf.o': 0.8, fit, label, extend, 'enter.kind': 'fade', strength}. Each path is applied to every item that supports it (spine: label, audio.mute, audio.gain while the voice is unlocked). au
 setSelf: {assetId, self}: a photo of the creator is always shown whole (fit contain on its items).
 setVoiceFx: [add] §30 the voice sound control: {patch} with any of preset, clean, tone, level, amount (a preset choice sends all five). Allowed while the voice is locked (the lock governs levels only). A result that is «as is» (clean off, tone flat, level off) removes aud
-trimItems: {ids, edge:'L'|'R', delta} simple trim (no ripple). L: positive delta shortens from the start (start moves right); R: positive delta lengthens. Bounds: dur ≥ 2 (images) / ≥ 1; media room from the layout (roomL/roomR). Extra result field [add] `limit: {edge, ke
+trimItems: 
 ungroupItems: {ids}: take apart every compound clip with a member among ids; nothing moves, the selection stays.
 unlinkSounds: {ids}: take the link off the sounds in ids (or off every sound linked to a scene in ids). The sounds stay where they are.
 placeFree: {set: {itemId: {x, y, s}}}: put pictures (or the pieces of a character) at the free places model/freespots.js found for them (spotsFor(...).spots[i].set): position and size only, one step for all of them; a slow zoom follows. A `self` photo is never moved or s
@@ -69,7 +70,7 @@ setBackground: {preset, color?}: the background under the scenes of a voice clip
 setBackgroundPhoto: {assetId, asset?, option?, mean?}: a picture as the background of a voice clip («أخرى» → «أرفق صورة»). `assetId` is an image of the project's media, or (with `asset`, the record /api/import answered) a new one that is added in the same step. `option` is 'plain
 setEdges: {edges:'blur'|'black'|'bg'}: what fills the edges of fitted clips.
 setFaceKind: [2026-10-28, SPEC-v2 §51] {face: 'face' | 'none' | null}: his answer to «is your face in this clip?» («وجهي في المقطع» / «صوت بلا وجه», in the plan and in «مقطع جديد»): kept as p.meta.face, it wins over what the face track finds (model/face-kind.js); null forg
-setFrame: {frame:'tall'|'wide'|'square', mode:'keep'|'fill'|'relayout'}: the project's frame. shape — the studio's way (as Final Cut changing a project's format): only the frame and the video change — a clip narrower than the frame shows whole with edges, a wider one fi
+setFrame: {frame:'tall'|'wide'|'square', mode:'shape'|'keep'|'fill'|'relayout'}: the project's frame. For the assistant, no mode = what his press does (pressMode: wider than the video was made in → keep, else shape); relayout only when asked. shape — the studio's way (a
 setSpineFit: {ids, fit:'fit'|'fill'}: a clip shows its whole picture (edges) or fills the frame (crops).
 setSpineTf: 
 addWinKey: {f, state}: from timeline frame f the video shows window `state` (smooth change). Makes the project's windows from the template ones when it has none; a clip without keys first gets FULL at its start.

@@ -2567,7 +2567,17 @@ jobs:
               }, 300000, 'the export started');
               console.log('exporting', name);
               // P8: closing the window while the export runs (its frames going out) asks first, the line names the export, «stay» keeps it going
-              await until(() => page.evaluate(async () => (await import('/js/ui/close-guard.js')).losses(window.__mohrer.ctx).includes('export')), 120000, 'the export running in the page');
+              // (run 45032727478, the Arabic user folder: 120 s and not a word of why) the sheet's own line while the server starts
+              // it, and its reason when it stops before its frames go out
+              let said = null;
+              await until(async () => {
+                if (await page.evaluate(async () => (await import('/js/ui/close-guard.js')).losses(window.__mohrer.ctx).includes('export'))) return true;
+                const s = await page.evaluate(() => { const r = document.querySelector('.ex-run'); return { run: !!r && !r.hidden, line: r ? r.textContent.trim() : '', warn: [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent.trim()) }; });
+                const now = [s.line, ...s.warn].filter(Boolean).join(' | ');
+                if (now !== said) { said = now; console.log('  the sheet:', now || '(nothing)'); }
+                if (!s.run || s.warn.length) throw new Error(`the export did not start: ${now || '(nothing said)'}`);
+                return false;
+              }, 120000, 'the export running in the page');
               let asked = null;
               const onDialog = (dl) => { asked = dl.type(); dl.dismiss().catch(() => {}); };
               page.on('dialog', onDialog);
@@ -3477,7 +3487,7 @@ jobs:
           curl -s -m 30 "${URL}api/info" | python -c "import json, sys; d = json.load(sys.stdin); print('face', d.get('face')); assert d.get('face') is True"
           URL="$URL" VIDEO="$(cygpath -w "$A/Videos/مقطع تجربة (خام).mp4")" NAME='جمل من مجلد عربي' PYTHONIOENCODING=utf-8 python "$(cygpath -w "$OH/arabic_words.py")"
           B="$(bash -c ". '$S/_common.sh'; app_browser_win")"
-          PP="$(cygpath -w "$OH/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" CHROME_HOME="$(cygpath -w "$OH")" URL="$URL" VIDEO="$(cygpath -w "$A/Videos/فيديو للتصدير.mp4")" NAME='تصدير من مجلد عربي' STEPS=draw MCP="$(cygpath -w /c/EditStudio/studio/app/studio/tools/studio-mcp.mjs)" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$OH/export_check.cjs")"
+          PP="$(cygpath -w "$OH/pp/node_modules/puppeteer-core")" CHROME="$(cygpath -w "$B")" CHROME_HOME="$(cygpath -w "$OH")" URL="$URL" VIDEO="$(cygpath -w "$A/Videos/فيديو للتصدير.mp4")" NAME='تصدير من مجلد عربي' STEPS=draw MCP="$(cygpath -w /c/EditStudio/studio/app/studio/tools/studio-mcp.mjs)" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$OH/export_check.cjs")" || { echo "the server log of C:\\EditStudio:"; tail -n 40 /c/EditStudio/studio/server.log 2>/dev/null || true; bash "$S/studio.sh" stop || true; exit 1; }
           bash "$S/studio.sh" stop
       - name: doctor (info)
         if: always()

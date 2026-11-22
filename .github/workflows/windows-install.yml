@@ -3384,14 +3384,19 @@ jobs:
           echo "voice tool: $st"
           SPID="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid' "$(cygpath -m "$D/projects/.mohrer/server.json")")"
           taskkill //F //T //PID "$SPID" || true
-          for i in $(seq 1 20); do tasklist //FI "PID eq $SPID" //NH | grep -q " $SPID " || break; sleep 1; done
-          tasklist //FI "PID eq $SPID" //NH | grep -q " $SPID " && { echo "the server $SPID did not end: this proves nothing"; exit 1; }
+          # each answer read whole first: «a | grep -q» under this shell's pipefail fails when grep stops reading early
+          alive(){ local t; t="$(tasklist //FI "PID eq $SPID" //NH 2>/dev/null | tr -d '\r' || true)"; case "$t" in *" $SPID "*) return 0 ;; *) return 1 ;; esac; }
+          for i in $(seq 1 20); do alive || break; sleep 1; done
+          if alive; then echo "the server $SPID did not end: this proves nothing"; exit 1; fi
           sleep 2
           after="$(find "$T" -maxdepth 1 -type d -name 'mohrer-stt-*' | sort)"
           left="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | grep . || true)"
           bash "$S/start.sh" --no-open   # the steps after this one need the studio
           NPID="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid' "$(cygpath -m "$D/projects/.mohrer/server.json")")"
-          bash "$S/studio.sh" status | grep -q '^running: ' && [ "$NPID" != "$SPID" ] || { echo "the studio did not come back after the forced end (pid $NPID)"; exit 1; }
+          ST2="$(bash "$S/studio.sh" status 2>&1 | tr -d '\r' || true)"
+          case "$ST2" in *"running: "*) ;; *) echo "the studio did not come back after the forced end: $ST2"; exit 1 ;; esac
+          [ "$NPID" != "$SPID" ] || { echo "the studio's pid is still $SPID after the forced end"; exit 1; }
+          echo "the studio came back: pid $NPID"
           case "$st" in *'"ready"'*) ;; *) echo "the voice tool never got ready, so this proves nothing: $st"; exit 1 ;; esac
           [ -z "$left" ] || { echo "left behind: $left"; exit 1; }
           echo "no mohrer-stt-* folder left after the forced end"

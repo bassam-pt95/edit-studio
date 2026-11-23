@@ -2571,9 +2571,13 @@ jobs:
               // P8: closing the window while the export runs (its frames going out) asks first, the line names the export, «stay» keeps it going
               // (run 45032727478, the Arabic user folder: 120 s and not a word of why) the sheet's own line while the server starts
               // it, and its reason when it stops before its frames go out
+              // (run 45045659054: «يُجهَّز التصدير» shows the moment he presses, before the checks answer, so «the export started»
+              // passed; then the checks found something and their list took the sheet, with no one to press «صدّر على أي حال».
+              // Answered here as above, and what they found is printed)
               let said = null;
               await until(async () => {
                 if (await page.evaluate(async () => (await import('/js/ui/close-guard.js')).losses(window.__mohrer.ctx).includes('export'))) return true;
+                if ((await title()) === T.review) { console.log('the checks:', await page.evaluate(() => [...document.querySelectorAll('.dialog li')].map((e) => e.textContent).join(' | '))); await press(T.anyway); return false; }
                 const s = await page.evaluate(() => { const r = document.querySelector('.ex-run'); return { run: !!r && !r.hidden, line: r ? r.textContent.trim() : '', warn: [...document.querySelectorAll('.ex-warn li')].map((e) => e.textContent.trim()) }; });
                 const now = [s.line, ...s.warn].filter(Boolean).join(' | ');
                 if (now !== said) { said = now; console.log('  the sheet:', now || '(nothing)'); }

@@ -3416,6 +3416,45 @@ jobs:
           case "$st" in *'"ready"'*) ;; *) echo "the voice tool never got ready, so this proves nothing: $st"; exit 1 ;; esac
           [ -z "$left" ] || { echo "left behind: $left"; exit 1; }
           echo "no mohrer-stt-* folder left after the forced end"
+      - name: alpha layers kept to their content (1.0.33) — a whole-frame transparent layer with a small box, imported and in an old project, under an Arabic folder with a space, only the box kept, where it was
+        # a follower's Windows laptop (26 Nov): 42 whole-frame alpha layers, Chrome lost its graphics. server/alpha-slim.mjs measures
+        # the alpha (ffmpeg bbox lines read as they come: \r\n here) and keeps only its box; the item is drawn where it was (asset.inset)
+        run: |
+          W="$(cygpath -u "$RUNNER_TEMP")/طبقات تجربة"; rm -rf "$W"; mkdir -p "$W/proj/media"
+          ffmpeg -v error -y -f lavfi -i color=c=black@0.0:s=1080x1920:r=30:d=1,format=rgba -vf "drawbox=x=100:y=300:w=120:h=80:color=red@1:t=fill:replace=1" -c:v qtrle -pix_fmt argb "$W/layer.mov"
+          ffmpeg -v error -y -i "$W/layer.mov" -filter_complex '[0:v]format=rgba,split=2[c][a];[c]premultiply=inplace=1,format=gbrp[cp];[a]alphaextract,format=gray,format=gbrp[am];[cp][am]vstack=inputs=2,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[o]' -map '[o]' -c:v libx264 -crf 12 -pix_fmt yuv420p "$W/proj/media/a_x.packed.mp4"
+          cat > "$W/check.mjs" <<'JS'
+          import { pathToFileURL } from 'node:url';
+          import path from 'node:path';
+          import fs from 'node:fs';
+          const APP = process.env.APP, W = process.env.WORK;
+          const media = await import(pathToFileURL(path.join(APP, 'server', 'media.mjs')).href);
+          const slim = await import(pathToFileURL(path.join(APP, 'server', 'alpha-slim.mjs')).href);
+          const fail = (m) => { console.log('FAIL ' + m); process.exitCode = 1; };
+          const inBox = (ins) => ins && ins[0] * 1080 <= 100 && (1 - ins[2]) * 1080 >= 220 && ins[1] * 1920 <= 300 && (1 - ins[3]) * 1920 >= 380;
+          // 1. imported: only the box is kept, and where it sits
+          const dir1 = path.join(W, 'imp'); fs.mkdirSync(dir1, { recursive: true });
+          const { asset } = await media.prepareVideo({ dir: dir1, id: 'a_x', src: path.join(W, 'layer.mov'), fps: [30, 1] });
+          console.log(`imported: ${asset.mw}x${asset.mh} of ${asset.lw}x${asset.lh}, inset ${JSON.stringify(asset.inset)}`);
+          if (!(asset.mw <= 160 && asset.mh <= 240)) fail('the imported layer kept the whole frame');
+          if (asset.lw !== 1080 || asset.lh !== 1920) fail('the item lost its frame');
+          if (!inBox(asset.inset)) fail('the kept box is not where the picture was');
+          if (!fs.existsSync(path.join(dir1, asset.file))) fail('the kept file is not there');
+          // 2. an old project's whole-frame layer: kept to its content through the studio's own write, the old file stays
+          const P = path.join(W, 'proj');
+          const old = { kind: 'video', label: 'x', file: 'media/a_x.packed.mp4', master: 'media/a_x.packed.mp4', w: 1080, h: 3840, mw: 1080, mh: 3840, lw: 1080, lh: 1920, dur: 1, fps: [30, 1], range: 'tv', alpha: 'packed-v', input: 'none', md5: 'old' };
+          let p = { assets: { a_x: old }, meta: {} };
+          const host = { get: () => ({ project: p }), patchMeta(fn) { const next = JSON.parse(JSON.stringify(p)); next.meta = fn(next.meta || {}, next); p = next; return { changed: true }; } };
+          const n = await slim.slimProject(host, P, { busy: () => false, log: console.log });
+          const a = p.assets.a_x;
+          console.log(`old project: ${n} kept, now ${a.mw}x${a.mh} ${a.file}`);
+          if (n !== 1 || !(a.mw <= 160) || !inBox(a.inset)) fail('the old layer was not kept to its content');
+          if (!fs.existsSync(path.join(P, a.file)) || !fs.existsSync(path.join(P, old.file))) fail('a file is missing (the new one, or the old one his undo needs)');
+          if ((await slim.slimProject(host, P, { busy: () => false })) !== 0) fail('looked at again');
+          if (!process.exitCode) console.log('alpha layers kept to their content');
+          JS
+          APP="$(cygpath -w "$HOME/Documents/video-edit/studio/app/studio")" WORK="$(cygpath -w "$W")" PYTHONIOENCODING=utf-8 node "$(cygpath -w "$W/check.mjs")"
+          rm -rf "$W"
       - name: an Arabic user folder with a space (audit 1.0.19, P9) — everything installed again with HOME and USERPROFILE at «C:\Users\Public\مستخدم تجربة», the data falls back to C:/EditStudio, a clip from under that folder gives Arabic sentences, its face detector loads, and an export with a drawing comes out
         # what this pass is not: Windows' own account stays runneradmin (its registry folders, its Desktop); what moves is all the
         # studio reads from HOME and USERPROFILE (the skills, the Python and Node home folders, the transcription model's cache,
